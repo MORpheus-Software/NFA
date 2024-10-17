@@ -42,9 +42,12 @@ describe("NFA", function () {
       
       const { nfaAddress, testNFA, nfaFactoryFactory: nfaFactory} = await deployNFAFixture();
 
-      console.log("testNFA: ", testNFA);
 
-      const codeHash = ""
+      const appInfo = await testNFA.getAppInfo(nfaAddress);
+      await appInfo.wait();
+
+      console.log("appInfo: ", appInfo);
+      const codeHash =  appInfo.codeHash;
 
       expect(codeHash).to.equal(
         "0x518c4bf773cea6b73b940ff8525167d33343aecfef4edb56d928fd77aa6d89f1"
