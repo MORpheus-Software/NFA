@@ -1,232 +1,116 @@
-# Getting Started with NFA Proxy for Agent Builders
+# BaseImage Proxy
 
-## Running with Prebuilt Images
+A proxy service that integrates with the Lumerin Node API for model inference and session management.
 
-### 1. Navigate to the Containers Directory
+## Features
 
-```bash
-cd containers
-```
-
-### 2. Run Docker Compose
-
-```bash
-docker-compose up -d
-```
-
-### 3. Docker Registry Source
-
-The prebuilt images are sourced from the [srt0422 Docker Hub Registry](https://hub.docker.com/u/srt0422).
-
-### 4. Configure Wallet and Model ID
-
-- **Wallet Configuration**: Even when using prebuilt images, you must configure your wallet by setting the `WALLET_PRIVATE_KEY` and `WALLET_ADDRESS` in the `.containers/docker-compose.yml` file to match your developer credentials.
-- **Model ID Configuration**: Set the `MODEL_ID` in the `containers/docker-compose.yml` file to specify which model the proxy should use. This ensures the proxy interacts correctly with your chosen model.
-
-## Building from Source
-
-This guide will help you set up and run the **NFA Proxy**, enabling you to build and test your agent with the proxy in place. The NFA Proxy acts as an intermediary between your agent and the Morpheus Marketplace, handling session initiation and request forwarding.
-
----
+- Bearer token authentication support
+- Automatic session management with configurable expiration
+- Model validation with similarity matching
+- Streaming chat completions
+- Health check endpoint
+- Docker support with multi-arch builds
 
 ## Prerequisites
 
-Ensure you have the following installed on your Mac machine:
+- Go 1.22 or later
+- Docker and Docker Compose
+- Access to a Lumerin Node API instance
+
+## Configuration
+
+Copy the example environment file and update it with your settings:
 
 ```bash
-brew install git
+cp .env.example .env
 ```
+
+Required environment variables:
+
+- `LUMERIN_NODE_API`: URL of the Lumerin Node API (default: http://lumerin-node-api:8083)
+- `AUTH_TOKEN`: Your authentication token for the Lumerin Node API
+- `WALLET_ADDRESS`: Your Ethereum wallet address
+- `WALLET_PRIVATE_KEY`: Your wallet's private key
+- `MODEL_ID`: The ID of the model you want to use
+
+Optional environment variables:
+
+- `PORT`: Server port (default: 8080)
+- `SESSION_DURATION`: Duration for session validity (default: 1h)
+- `SESSION_EXPIRATION_SECONDS`: Session expiration in seconds (default: 1800)
+- `LOG_LEVEL`: Logging level (default: info)
+
+## Building and Running
+
+### Local Development
 
 ```bash
-# Download and install Docker Desktop for Mac:
-# https://www.docker.com/products/docker-desktop
+# Build the binary
+go build -o bin/nfa-proxy
+
+# Run the proxy
+./bin/nfa-proxy
 ```
 
----
-
-## Configuration Requirements
-
-### 1. Clone the BaseImage Repository
-
-Begin by cloning the **BaseImage** repository to your local machine:
+### Docker
 
 ```bash
-git clone https://github.com/MORpheus-Software/NFA.git
+# Build the Docker image
+docker compose build
+
+# Start the service
+docker compose up -d
+
+# View logs
+docker compose logs -f
 ```
 
-### 2. Navigate to the BaseImage Directory
+## API Endpoints
 
-Change to the BaseImage directory:
+### Health Check
+```
+GET /health
+```
+
+### Chat Completions
+```
+POST /v1/chat/completions
+Authorization: Bearer <session_token>
+
+{
+  "model": "model-name",
+  "messages": [
+    {"role": "user", "content": "Hello"}
+  ],
+  "stream": true
+}
+```
+
+### Get Available Models
+```
+GET /blockchain/models
+```
+
+## Testing
 
 ```bash
-cd BaseImage
+# Run all tests
+go test -v ./...
+
+# Run specific package tests
+go test -v ./proxy/...
 ```
-
-### 3. Set Up Environment Variables
-
-The BaseImage project uses environment variables for configuration. Follow these steps:
-
-1. Copy the example environment file:
-
-```bash
-cp example.env .env
-```
-
-2. Edit the `.env` file and replace the placeholder values:
-
-```dotenv
-# .env
-WALLET_PRIVATE_KEY=your_private_key_here
-WALLET_ADDRESS=your_wallet_address_here
-PORT=8080
-MARKETPLACE_URL=http://localhost:9000/v1/chat/completions
-SESSION_DURATION=1h
-MODEL_ID=your_model_id_here
-```
-
-**Important Notes:**
-- Replace all placeholder values with your actual configuration
-- Use **test credentials** only - never commit real private keys
-- The `MODEL_ID` is required for the proxy to function correctly
-
----
-
-## Steps to Run the NFA Proxy with Docker Compose
-
-### 1. Build the Docker Image
-
-The project includes a build script with several options:
-
-```bash
-chmod +x scripts/docker-build.sh
-./scripts/docker-build.sh -t nfa-proxy -f Dockerfile.proxy
-```
-
-Build script options:
-- `-t`: Specify the image tag (default: nfa-base)
-- `-f`: Specify the Dockerfile to use (default: Dockerfile.proxy)
-- `-p`: Specify platform(s) to build for (default: host architecture)
-- `-a`: Add build arguments in key=value format
-
-Example with multiple options:
-
-```bash
-./scripts/docker-build.sh -t nfa-proxy -f Dockerfile.proxy -p linux/amd64 -p linux/arm64
-```
-
-### 2. Run the NFA Proxy Container with Docker Compose
-
-Start the NFA Proxy container using Docker Compose:
-
-```bash
-docker-compose up -d
-```
-
-This command runs the `nfa-proxy` service defined in the `docker-compose.yml` file in detached mode.
-
-### 3. Verify the NFA Proxy is Running
-
-Check that the container is running:
-
-```bash
-docker-compose ps
-```
-
-You should see the `nfa-proxy` service in the list.
-
-Test the health endpoint:
-
-```bash
-curl http://localhost:8080/health
-```
-
-You should receive a response indicating that the service is healthy.
-
----
-
-## Usage Instructions
-
-### Testing the Chat Endpoints
-
-You can quickly test the NFA Proxy with the provided script:
-
-```bash
-./scripts/testRequest.sh
-```
-
-This script verifies that the proxy and marketplace are running, then sends test requests (non-stream and stream).
-
-#### Manual cURL Requests
-
-You can test the NFA Proxy by sending requests to the chat completion endpoint.
-
-```bash
-curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-        "model": "YourModelName",
-        "messages": [{"role": "user", "content": "Hello, agent!"}]
-      }'
-```
-
-Replace `"YourModelName"` with the name of the model you are using.
-
-#### Example: Streaming Chat Completion
-
-```bash
-curl -N -X POST http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-        "model": "YourModelName",
-        "messages": [{"role": "user", "content": "Stream this message."}],
-        "stream": true
-      }'
-```
-
-The `-N` flag keeps the connection open for streaming responses.
-
-### Viewing Logs
-
-To see the logs of the NFA Proxy container:
-
-```bash
-docker-compose logs -f nfa-proxy
-```
-
-### Stopping the NFA Proxy
-
-To stop and remove the container:
-
-```bash
-docker-compose down
-```
-
----
-
-## Additional Notes
-
-- **Environment Variables**: Ensure all required variables in the `.env` file are correctly set.
-- **Port Configuration**: If port `8080` is in use, modify the `ports` section in the `docker-compose.yml` file to map to an available port.
-- **Marketplace URL**: The `MARKETPLACE_URL` should point to a running instance of the marketplace. Adjust it if running the marketplace on a different host or port.
-
----
 
 ## Troubleshooting
 
-- **Docker Not Running**: Ensure Docker Desktop is running before executing Docker commands.
-- **Port Conflicts**: Check for port conflicts on `8080` and adjust accordingly.
-- **Missing Dependencies**: Confirm that all prerequisites are installed and properly configured.
-- **Environment Variable Issues**: Double-check the `.env` file for typos or incorrect values.
+1. If you see "no such host" errors, ensure the Lumerin Node API is accessible and properly configured in your environment.
+2. For authentication errors, verify your AUTH_TOKEN is correctly set and valid.
+3. For model validation errors, ensure the model name matches closely with available models (90% similarity required).
 
----
+## Contributing
 
-## Additional Scripts
-
-To remove all containers, images, and volumes from your environment, run:
-
-```bash
-./scripts/clean.sh
-```
----
-
-You're now ready to build and test your agent with the NFA Proxy!
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a new Pull Request

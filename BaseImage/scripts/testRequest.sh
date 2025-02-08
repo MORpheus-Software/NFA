@@ -1,49 +1,40 @@
 #!/bin/zsh
 
-PORT=8080
-MODEL_HANDLE="nfa-llama2"  # Changed back to original model handle
-# MODEL_HANDLE="Hermes 3 Llama 3.1"
+# Enable verbose mode
+set -x
+
+MODEL_HANDLE="LMR-Hermes-2-Theta-Llama-3-8B"
+# Use the PROVIDER_URL env var if set, otherwise default to localhost
+PROVIDER_URL=${PROVIDER_URL:-"localhost:8081"}
+# Use the SCHEME env var if set, otherwise default to http for local testing
+SCHEME=${SCHEME:-"http"}
+AUTH_HEADER="Basic $(echo -n 'admin:yosz9BZCuu7Rli7mYe4G1JbIO0Yprvwl' | base64)"
+
+echo "=== Test Configuration ==="
 echo "Using MODEL_HANDLE: $MODEL_HANDLE"
+echo "Testing provider at: ${SCHEME}://${PROVIDER_URL}"
+echo "Using auth header: $AUTH_HEADER"
+echo "========================="
 
-# Function to check if a service is running on a port
-check_service() {
-    local port=$1
-    if ! nc -z localhost $port 2>/dev/null; then
-        return 1
-    fi
-    return 0
-}
+echo -e "\n=== Making chat completion request ==="
+echo "Sending request to: ${SCHEME}://${PROVIDER_URL}/v1/chat/completions"
+echo "With headers:"
+echo "  Content-Type: application/json"
+echo "  Authorization: $AUTH_HEADER"
+echo "Request body:"
+echo '{
+    "model": "'"$MODEL_HANDLE"'",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "stream": true
+}'
 
-# Check if proxy is running
-if ! check_service $PORT; then
-    echo "Error: Proxy is not running on port $PORT"
-    echo "Please start it with docker compose up"
-    docker ps
-    echo "Container logs:"
-    docker logs nfa-proxy
-    exit 1
-fi
-
-# Check if marketplace is running
-# if ! check_service 9000; then
-#     echo "Error: Marketplace is not running on port 9000"
-#     echo "Please start it with docker compose up"
-#     exit 1
-# fi
-
-# echo "Testing non-streaming request..."
-# curl -v -X POST http://localhost:$PORT/v1/chat/completions \
-#   -H "Content-Type: application/json" \
-#   -d '{
-#     "model": "'"$MODEL_HANDLE"'",
-#     "messages": [{"role": "user", "content": "Hello"}]
-#   }'
-
-echo -e "\nTesting streaming request..."
-curl -v -X POST http://34.127.54.11:8080 /v1/chat/completions \
+curl -v -X POST "${SCHEME}://${PROVIDER_URL}/v1/chat/completions" \
   -H "Content-Type: application/json" \
+  -H "Authorization: ${AUTH_HEADER}" \
   -d '{
     "model": "'"$MODEL_HANDLE"'",
     "messages": [{"role": "user", "content": "Hello"}],
     "stream": true
   }'
+
+echo -e "\n=== Test Complete ==="

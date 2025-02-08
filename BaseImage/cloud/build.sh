@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Source version from .env
-VERSION=$(grep VERSION ../.env | cut -d '=' -f2)
+VERSION=$(grep NFA_PROXY_VERSION ../.env | cut -d '"' -f2)
 
 # Set variables
 IMAGE_NAME="openai-morpheus-proxy"

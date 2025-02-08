@@ -10,7 +10,7 @@ BUILD_PLATFORM=${BUILD_PLATFORM:-"linux/amd64"}
 
 # Repository management
 REPO_PATH="./Morpheus-Lumerin-Node"
-REPO_URL="https://github.com/Lumerin-protocol/proxy-router.git"
+REPO_URL="https://github.com/MorpheusAIs/Morpheus-Lumerin-Node.git"
 
 # Check and setup repository
 if [ ! -d "$REPO_PATH" ]; then
@@ -50,5 +50,9 @@ docker buildx build --platform ${BUILD_PLATFORM} \
   --load \
   -f $REPO_PATH/proxy-router/Dockerfile \
   $REPO_PATH/proxy-router
+
+# Retag images manually to ensure the 'latest' tag exists
+docker tag $REGISTRY/$PROVIDER_IMAGE_NAME:$VERSION $REGISTRY/$PROVIDER_IMAGE_NAME:latest
+docker tag $REGISTRY/$CONSUMER_IMAGE_NAME:$VERSION $REGISTRY/$CONSUMER_IMAGE_NAME:latest
 
 echo "All images built successfully!"

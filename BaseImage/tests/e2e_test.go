@@ -17,28 +17,27 @@ import (
 	"github.com/MORpheusSoftware/NFA/BaseImage/mocks"
 )
 
-func StartMockServer(ctx context.Context, wg *sync.WaitGroup, port string, t *testing.T) {
+const (
+	defaultModelHandle = "LMR-Hermes-2-Theta-Llama-3-8B"
+)
+
+func StartMockServer(ctx context.Context, wg *sync.WaitGroup, port string, errChan chan<- error) {
 	defer wg.Done()
 	server := &http.Server{Addr: ":" + port, Handler: http.HandlerFunc(mocks.MockMarketplaceHandler)}
-	serverErrors := make(chan error, 1)
-
+	
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			serverErrors <- fmt.Errorf("Mock Marketplace Server ListenAndServe: %v", err)
+			errChan <- fmt.Errorf("Mock Marketplace Server ListenAndServe: %v", err)
 		}
 	}()
 
-	select {
-	case <-ctx.Done():
-		// Context canceled, proceed to shutdown
-	case err := <-serverErrors:
-		t.Fatalf("Mock Marketplace Server error: %v", err)
-	}
-
+	<-ctx.Done()
+	
 	ctxShutDown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	
 	if err := server.Shutdown(ctxShutDown); err != nil {
-		t.Fatalf("Mock Marketplace Server Shutdown Failed:%+v", err)
+		errChan <- fmt.Errorf("Mock Marketplace Server Shutdown Failed: %v", err)
 	}
 }
 
@@ -49,20 +48,42 @@ func TestProxyServerOpenAICompatibility(t *testing.T) {
 		proxyServerURL = "http://localhost:8080"
 	}
 
+	// Get model handle from environment or use default
+	modelHandle := os.Getenv("MODEL_NAME")
+	if modelHandle == "" {
+		modelHandle = defaultModelHandle
+	}
+
+	var wg sync.WaitGroup
 	marketplaceURL := os.Getenv("MARKETPLACE_URL")
 	if marketplaceURL == "" {
 		marketplaceURL = "http://localhost:9000/v1/chat/completions"
 		// Start the mock marketplace server if necessary
-
-		var wg sync.WaitGroup
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		if strings.Contains(marketplaceURL, "localhost:9000") {
+			errChan := make(chan error, 1)
 			wg.Add(1)
-			go StartMockServer(ctx, &wg, "9000", t)
+			go StartMockServer(ctx, &wg, "9000", errChan)
+			
 			// Allow the mock server to start
 			time.Sleep(1 * time.Second)
+			
+			// Check for any startup errors
+			select {
+			case err := <-errChan:
+				t.Fatalf("Mock server error: %v", err)
+			default:
+				// No errors, continue
+			}
+			
+			// Start a goroutine to monitor for server errors
+			go func() {
+				if err := <-errChan; err != nil {
+					t.Errorf("Mock server error: %v", err)
+				}
+			}()
 		}
 	}
 
@@ -80,7 +101,7 @@ func TestProxyServerOpenAICompatibility(t *testing.T) {
 		{
 			name: "Non-Streaming Request",
 			requestBody: map[string]interface{}{
-				"model":    "gpt-3.5-turbo",
+				"model":    modelHandle,
 				"messages": []map[string]string{{"role": "user", "content": "Hello"}},
 			},
 			expectedStatus: http.StatusOK,
@@ -113,7 +134,7 @@ func TestProxyServerOpenAICompatibility(t *testing.T) {
 		{
 			name: "Streaming Request",
 			requestBody: map[string]interface{}{
-				"model":    "gpt-3.5-turbo",
+				"model":    modelHandle,
 				"messages": []map[string]string{{"role": "user", "content": "Hello"}},
 				"stream":   true,
 			},
@@ -135,10 +156,9 @@ func TestProxyServerOpenAICompatibility(t *testing.T) {
 		{
 			name: "Missing session_id",
 			requestBody: map[string]interface{}{
-				"model":    "gpt-3.5-turbo",
+				"model":    modelHandle,
 				"messages": []map[string]string{{"role": "user", "content": "Hello"}},
 			},
-			// This test assumes the proxy requires a session_id header
 			expectedStatus: http.StatusUnauthorized,
 			validateFunc: func(t *testing.T, resp *http.Response) {
 				var response map[string]interface{}
@@ -154,7 +174,7 @@ func TestProxyServerOpenAICompatibility(t *testing.T) {
 		},
 		{
 			name:           "Invalid JSON",
-			requestBody:    nil, // Send invalid JSON
+			requestBody:    nil,
 			expectedStatus: http.StatusBadRequest,
 			validateFunc: func(t *testing.T, resp *http.Response) {
 				bodyBytes, err := io.ReadAll(resp.Body)
@@ -233,13 +253,16 @@ type Message struct {
 func TestChatCompletionEndToEnd(t *testing.T) {
 	// Test configuration
 	proxyURL := "http://localhost:8080"
-	modelID := "test-model"
+	modelHandle := os.Getenv("MODEL_NAME")
+	if modelHandle == "" {
+		modelHandle = defaultModelHandle
+	}
 	numRequests := 5
 	var wg sync.WaitGroup
 
 	// Create a chat completion request
 	request := ChatCompletionRequest{
-		Model: modelID,
+		Model: modelHandle,
 		Messages: []Message{
 			{Role: "user", Content: "Hello"},
 		},

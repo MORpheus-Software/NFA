@@ -7,25 +7,27 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-PROXY_PORT="8081"
+PROXY_URL="https://nfa-proxy-874161723906.us-west1.run.app"
+AUTH_USER="admin"
+AUTH_PASS="yosz9BZCuu7Rli7mYe4G1JbIO0Yprvwl"
 
 # Arrays of model IDs and names (parallel arrays)
 MODEL_IDS=(
     "0x560d9704d2dba7da8dab2db043f9f8fd9354936561961569ddd874641adee13e"
-    "0xd8a304f87466ed3f8da0195fc67ba71cdca881100b5ad7855acd211d09966722"
-    "0xa2bdc7ce113aeaebafe9a6e26ef8fc86cdf0328ea21ba0748944ea74e9539431"
+    # "0xd8a304f87466ed3f8da0195fc67ba71cdca881100b5ad7855acd211d09966722"
+    # "0xa2bdc7ce113aeaebafe9a6e26ef8fc86cdf0328ea21ba0748944ea74e9539431"
 )
 
 MODEL_NAMES=(
     "LMR-Hermes-2-Theta-Llama-3-8B"
-    "LMR-Capybara Hermes 2.5 Mistral-7B"
-    "LMR-HyperB-Qwen2.5-Coder-32B"
+    # "LMR-Capybara Hermes 2.5 Mistral-7B"
+    # "LMR-HyperB-Qwen2.5-Coder-32B"
 )
 
 # Function to check container health
 check_health() {
     echo -e "${YELLOW}Checking proxy health...${NC}"
-    response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${PROXY_PORT}/health)
+    response=$(curl -s -o /dev/null -w "%{http_code}" ${PROXY_URL}/health)
     if [ "$response" = "200" ]; then
         echo -e "${GREEN}Proxy is healthy${NC}"
         return 0
@@ -36,7 +38,7 @@ check_health() {
 
 # Function to get wallet address
 get_wallet_address() {
-    wallet_response=$(curl -s -X GET "http://localhost:8082/blockchain/wallet" -H 'accept: application/json')
+    wallet_response=$(curl -s -X GET "${PROXY_URL}/blockchain/wallet" -H 'accept: application/json')
     if [[ $wallet_response == *"address"* ]]; then
         echo $(echo $wallet_response | jq -r '.address')
     else
@@ -55,7 +57,7 @@ cleanup_sessions() {
     fi
     
     # Get all sessions for the user
-    sessions_response=$(curl -s -X GET "http://localhost:${PROXY_PORT}/blockchain/sessions/user?user=${wallet_address}" \
+    sessions_response=$(curl -s -X GET "${PROXY_URL}/blockchain/sessions/user?user=${wallet_address}" \
         -H 'accept: application/json')
     
     # Extract session IDs and close each session
@@ -63,7 +65,7 @@ cleanup_sessions() {
         echo $sessions_response | jq -r '.sessions[]?.id' | while read -r session_id; do
             if [ ! -z "$session_id" ]; then
                 echo -e "${YELLOW}Closing session: $session_id${NC}"
-                close_response=$(curl -s -X POST "http://localhost:${PROXY_PORT}/blockchain/sessions/${session_id}/close" \
+                close_response=$(curl -s -X POST "${PROXY_URL}/blockchain/sessions/${session_id}/close" \
                     -H 'accept: application/json')
                 echo -e "${GREEN}Close response: $close_response${NC}"
             fi
@@ -82,14 +84,16 @@ send_chat_request() {
     
     echo -e "\n${YELLOW}$step_name${NC}"
     echo -e "Using model: ${GREEN}$model_name${NC}"
+    echo -e "Using session: ${GREEN}$session_id${NC}"
     
-    chat_response=$(curl -s -X POST "http://localhost:${PROXY_PORT}/v1/chat/completions" \
+    chat_response=$(curl -s -X POST "${PROXY_URL}/v1/chat/completions" \
         -H 'accept: application/json' \
         -H 'Content-Type: application/json' \
         -H "session_id: $session_id" \
+        -H "Authorization: Basic $(echo -n "${AUTH_USER}:${AUTH_PASS}" | base64)" \
         -d "{
             \"messages\": [{\"content\": \"$message\", \"role\": \"user\"}],
-            \"stream\": true,
+            \"stream\": false,
             \"model\": \"$model_name\"
         }")
 
@@ -118,9 +122,10 @@ for i in "${!MODEL_IDS[@]}"; do
     
     # Create session
     echo -e "\n${YELLOW}Creating session for $model_name${NC}"
-    session_response=$(curl -s -X POST "http://localhost:${PROXY_PORT}/blockchain/models/${model_id}/session" \
+    session_response=$(curl -s -X POST "${PROXY_URL}/blockchain/models/${model_id}/session" \
         -H 'accept: application/json' \
         -H 'Content-Type: application/json' \
+        -H "Authorization: Basic $(echo -n "${AUTH_USER}:${AUTH_PASS}" | base64)" \
         -d '{"sessionDuration": 600}')
     
     # Check if response contains error but continue anyway
@@ -143,12 +148,12 @@ for i in "${!MODEL_IDS[@]}"; do
     
     echo -e "${GREEN}Created session: $session_id${NC}"
     
-    # Test chat request
+    # Test chat request immediately
     send_chat_request "$session_id" "$model_name" "Hello, can you help me test if you're working?" "Testing chat with $model_name"
     
     # Close session
     echo -e "\n${YELLOW}Closing session for $model_name${NC}"
-    close_response=$(curl -s -X POST "http://localhost:${PROXY_PORT}/blockchain/sessions/${session_id}/close" \
+    close_response=$(curl -s -X POST "${PROXY_URL}/blockchain/sessions/${session_id}/close" \
         -H 'accept: application/json')
     
     if [[ $close_response == *"404"* ]]; then

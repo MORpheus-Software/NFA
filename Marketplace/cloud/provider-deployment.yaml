@@ -17,6 +17,21 @@ data:
       ]
     }
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: proxy-config
+data:
+  proxy.conf: |-
+    {
+      "users": {
+        "admin": {
+          "password": "admin123",
+          "role": "admin"
+        }
+      }
+    }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -35,6 +50,16 @@ spec:
       - ip: "34.118.232.160"  # Use your cluster IP here
         hostnames:
         - "provider-service"
+      initContainers:
+        - name: init-config
+          image: busybox
+          command: ['sh', '-c', 'cp /tmp/proxy.conf /app/config/proxy.conf && chmod 644 /app/config/proxy.conf']
+          volumeMounts:
+            - name: proxy-config-template
+              mountPath: /tmp/proxy.conf
+              subPath: proxy.conf
+            - name: config-dir
+              mountPath: /app/config
       containers:
         - name: provider
           image: srt0422/morpheus-marketplace-provider:${VERSION}
@@ -69,6 +94,8 @@ spec:
               value: "421614"
             - name: ENVIRONMENT
               value: "development"
+            - name: BLOCKSCOUT_API_URL
+              value: "https://api-sepolia.arbiscan.io/api"
 
             # COMMON
             - name: PROXY_ADDRESS
@@ -91,6 +118,8 @@ spec:
               value: "./data/"
             - name: LOG_COLOR
               value: "true"
+            - name: AUTH_CONFIG_FILE_PATH
+              value: "/app/config/proxy.conf"
 
           volumeMounts:
             - name: provider-data
@@ -98,6 +127,8 @@ spec:
             - name: models-config
               mountPath: /app/data/models-config.json
               subPath: models-config.json
+            - name: config-dir
+              mountPath: /app/config
       volumes:
         - name: provider-data
           persistentVolumeClaim:
@@ -105,3 +136,8 @@ spec:
         - name: models-config
           configMap:
             name: models-config
+        - name: proxy-config-template
+          configMap:
+            name: proxy-config
+        - name: config-dir
+          emptyDir: {}
