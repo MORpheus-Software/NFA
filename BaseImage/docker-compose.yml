@@ -7,28 +7,40 @@ services:
       dockerfile: Dockerfile.proxy
       args:
         TARGETOS: linux
-        TARGETARCH: arm64  # Changed from amd64 to arm64
+        TARGETARCH: arm64
+        TARGETPLATFORM: linux/arm64
       platforms:
-        - linux/arm64      # Changed from linux/amd64 to linux/arm64
+        - linux/arm64
     # image: nfa-proxy:latest
     env_file:
       - .env
     environment:
       - PORT=${PORT:-8080}
-      - MARKETPLACE_URL=${MARKETPLACE_URL:-http://34.118.234.36:8083/v1/chat/completions}
+      - MARKETPLACE_URL=${MARKETPLACE_URL:-http://lumerin-node-api:8083}
       - SESSION_DURATION=${SESSION_DURATION:-1h}
-      - WALLET_ADDRESS=${WALLET_ADDRESS:-0x0000000000000000000000000000000000000000}
-      - WALLET_PRIVATE_KEY=${WALLET_PRIVATE_KEY:-6f3453bc036158833281b9e0204975bad0f2a4407c4ab32132bb0f9e6e692cbb}
-      - MODEL_ID=${MODEL_ID:-0x560d9704d2dba7da8dab2db043f9f8fd9354936561961569ddd874641adee13e}
+      - WALLET_ADDRESS=${WALLET_ADDRESS}
+      - WALLET_PRIVATE_KEY=${WALLET_PRIVATE_KEY}
+      - MODEL_ID=${MODEL_ID}
       - DEFAULT_PORT=${DEFAULT_PORT:-8080}
       - MARKETPLACE_PORT=${MARKETPLACE_PORT:-8083}
+      - LUMERIN_NODE_API=${LUMERIN_NODE_API:-http://lumerin-node-api:8083}
+      - AUTH_TOKEN=${AUTH_TOKEN}
+      - SESSION_EXPIRATION_SECONDS=${SESSION_EXPIRATION_SECONDS:-1800}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
     ports:
-      - "8080:8080"
+      - "${PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - lumerin-network
+
+networks:
+  lumerin-network:
+    name: lumerin-network
+    external: true
 
 volumes:
   provider-data:

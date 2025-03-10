@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -16,28 +17,27 @@ import (
 	"github.com/MORpheusSoftware/NFA/BaseImage/mocks"
 )
 
-func StartMockServer(ctx context.Context, wg *sync.WaitGroup, port string, t *testing.T) {
+const (
+	defaultModelHandle = "LMR-Hermes-2-Theta-Llama-3-8B"
+)
+
+func StartMockServer(ctx context.Context, wg *sync.WaitGroup, port string, errChan chan<- error) {
 	defer wg.Done()
 	server := &http.Server{Addr: ":" + port, Handler: http.HandlerFunc(mocks.MockMarketplaceHandler)}
-	serverErrors := make(chan error, 1)
-
+	
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			serverErrors <- fmt.Errorf("Mock Marketplace Server ListenAndServe: %v", err)
+			errChan <- fmt.Errorf("Mock Marketplace Server ListenAndServe: %v", err)
 		}
 	}()
 
-	select {
-	case <-ctx.Done():
-		// Context canceled, proceed to shutdown
-	case err := <-serverErrors:
-		t.Fatalf("Mock Marketplace Server error: %v", err)
-	}
-
+	<-ctx.Done()
+	
 	ctxShutDown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	
 	if err := server.Shutdown(ctxShutDown); err != nil {
-		t.Fatalf("Mock Marketplace Server Shutdown Failed:%+v", err)
+		errChan <- fmt.Errorf("Mock Marketplace Server Shutdown Failed: %v", err)
 	}
 }
 
@@ -48,20 +48,42 @@ func TestProxyServerOpenAICompatibility(t *testing.T) {
 		proxyServerURL = "http://localhost:8080"
 	}
 
+	// Get model handle from environment or use default
+	modelHandle := os.Getenv("MODEL_NAME")
+	if modelHandle == "" {
+		modelHandle = defaultModelHandle
+	}
+
+	var wg sync.WaitGroup
 	marketplaceURL := os.Getenv("MARKETPLACE_URL")
 	if marketplaceURL == "" {
 		marketplaceURL = "http://localhost:9000/v1/chat/completions"
 		// Start the mock marketplace server if necessary
-
-		var wg sync.WaitGroup
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		if strings.Contains(marketplaceURL, "localhost:9000") {
+			errChan := make(chan error, 1)
 			wg.Add(1)
-			go StartMockServer(ctx, &wg, "9000", t)
+			go StartMockServer(ctx, &wg, "9000", errChan)
+			
 			// Allow the mock server to start
 			time.Sleep(1 * time.Second)
+			
+			// Check for any startup errors
+			select {
+			case err := <-errChan:
+				t.Fatalf("Mock server error: %v", err)
+			default:
+				// No errors, continue
+			}
+			
+			// Start a goroutine to monitor for server errors
+			go func() {
+				if err := <-errChan; err != nil {
+					t.Errorf("Mock server error: %v", err)
+				}
+			}()
 		}
 	}
 
@@ -79,7 +101,7 @@ func TestProxyServerOpenAICompatibility(t *testing.T) {
 		{
 			name: "Non-Streaming Request",
 			requestBody: map[string]interface{}{
-				"model":    "gpt-3.5-turbo",
+				"model":    modelHandle,
 				"messages": []map[string]string{{"role": "user", "content": "Hello"}},
 			},
 			expectedStatus: http.StatusOK,
@@ -112,7 +134,7 @@ func TestProxyServerOpenAICompatibility(t *testing.T) {
 		{
 			name: "Streaming Request",
 			requestBody: map[string]interface{}{
-				"model":    "gpt-3.5-turbo",
+				"model":    modelHandle,
 				"messages": []map[string]string{{"role": "user", "content": "Hello"}},
 				"stream":   true,
 			},
@@ -134,10 +156,9 @@ func TestProxyServerOpenAICompatibility(t *testing.T) {
 		{
 			name: "Missing session_id",
 			requestBody: map[string]interface{}{
-				"model":    "gpt-3.5-turbo",
+				"model":    modelHandle,
 				"messages": []map[string]string{{"role": "user", "content": "Hello"}},
 			},
-			// This test assumes the proxy requires a session_id header
 			expectedStatus: http.StatusUnauthorized,
 			validateFunc: func(t *testing.T, resp *http.Response) {
 				var response map[string]interface{}
@@ -153,7 +174,7 @@ func TestProxyServerOpenAICompatibility(t *testing.T) {
 		},
 		{
 			name:           "Invalid JSON",
-			requestBody:    nil, // Send invalid JSON
+			requestBody:    nil,
 			expectedStatus: http.StatusBadRequest,
 			validateFunc: func(t *testing.T, resp *http.Response) {
 				bodyBytes, err := io.ReadAll(resp.Body)
@@ -215,5 +236,112 @@ func TestProxyServerOpenAICompatibility(t *testing.T) {
 	}
 
 	// Wait for the mock server to shut down if it was started
+	wg.Wait()
+}
+
+type ChatCompletionRequest struct {
+	Model    string    `json:"model"`
+	Messages []Message `json:"messages"`
+	Stream   bool      `json:"stream"`
+}
+
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+func TestChatCompletionEndToEnd(t *testing.T) {
+	// Test configuration
+	proxyURL := "http://localhost:8080"
+	modelHandle := os.Getenv("MODEL_NAME")
+	if modelHandle == "" {
+		modelHandle = defaultModelHandle
+	}
+	numRequests := 5
+	var wg sync.WaitGroup
+
+	// Create a chat completion request
+	request := ChatCompletionRequest{
+		Model: modelHandle,
+		Messages: []Message{
+			{Role: "user", Content: "Hello"},
+		},
+		Stream: true,
+	}
+
+	requestBody, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+
+	// Send multiple concurrent requests
+	for i := 0; i < numRequests; i++ {
+		wg.Add(1)
+		go func(requestNum int) {
+			defer wg.Done()
+
+			// Create a new request
+			req, err := http.NewRequest("POST", fmt.Sprintf("%s/v1/chat/completions", proxyURL), bytes.NewBuffer(requestBody))
+			if err != nil {
+				t.Errorf("Failed to create request %d: %v", requestNum, err)
+				return
+			}
+
+			// Set headers
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json")
+
+			// Send the request
+			client := &http.Client{
+				Timeout: time.Minute * 5,
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Errorf("Failed to send request %d: %v", requestNum, err)
+				return
+			}
+			defer resp.Body.Close()
+
+			// Check response status
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				t.Errorf("Request %d failed with status %d: %s", requestNum, resp.StatusCode, string(body))
+				return
+			}
+
+			// Read and validate streaming response
+			reader := bufio.NewReader(resp.Body)
+			eventCount := 0
+			for {
+				line, err := reader.ReadBytes('\n')
+				if err != nil {
+					if err == io.EOF {
+						break
+					}
+					t.Errorf("Error reading stream in request %d: %v", requestNum, err)
+					return
+				}
+
+				// Skip empty lines
+				if len(bytes.TrimSpace(line)) == 0 {
+					continue
+				}
+
+				// Parse and validate the event
+				if !bytes.HasPrefix(line, []byte("data: ")) {
+					t.Errorf("Invalid event format in request %d: %s", requestNum, string(line))
+					continue
+				}
+
+				eventCount++
+			}
+
+			if eventCount == 0 {
+				t.Errorf("Request %d received no events", requestNum)
+			}
+		}(i)
+	}
+
+	// Wait for all requests to complete
 	wg.Wait()
 }

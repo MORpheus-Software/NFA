@@ -1,1166 +1,754 @@
-openapi: 3.0.3
+openapi: "3.0.0"
 info:
-  title: Morpheus Marketplace API
-  description: API documentation for the Morpheus Marketplace.
-  version: '1.0.0'
-  contact:
-    email: dev-feedback@morpheus-marketplace.com
+  title: Morpheus Lumerin Node API
+  version: "2.0.0"  # As of main release 2.0.0, API access requires authentication&#8203;:contentReference[oaicite:0]{index=0}
+  description: >-
+    This API allows interaction with the Morpheus Lumerin Node, including wallet management, 
+    provider/model setup, bid marketplace, session control, and chat operations. 
+    **All endpoints require HTTP Basic authentication** using the credentials from the node’s 
+    `.cookie` file&#8203;:contentReference[oaicite:1]{index=1}. Users must be whitelisted for each RPC method via `proxy.conf` 
+    (admin users have access to all methods by default&#8203;:contentReference[oaicite:2]{index=2}).
+  license:
+    name: MIT
+    url: "https://opensource.org/licenses/MIT"  # MIT License&#8203;:contentReference[oaicite:3]{index=3}
 servers:
-  - url: https://api.blockchainmarketplace.com
+  - url: "http://localhost:8082"
+    description: Local proxy-router instance (default)&#8203;:contentReference[oaicite:4]{index=4}
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: >-
+        HTTP Basic authentication for all API requests. Use the username and password generated 
+        in the `.cookie` file (e.g., default user "admin" with a random password)&#8203;:contentReference[oaicite:5]{index=5}. 
+        The provided user must have the appropriate RPC permissions (whitelisted methods) in 
+        `proxy.conf`&#8203;:contentReference[oaicite:6]{index=6}.
+  schemas:
+    Model:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Identifier for the model (local to this node)
+        name:
+          type: string
+          description: Human-readable name of the model
+        endpoint:
+          type: string
+          description: Endpoint URL or address of the model (for provider’s local model server)
+        description:
+          type: string
+          description: Optional description of the model
+      required: [name, endpoint]
+      description: A model configured on the node (for providers or local usage).
+    Bid:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Identifier for the bid listing
+        provider:
+          type: string
+          description: Ethereum address of the provider offering this bid
+        modelId:
+          type: integer
+          description: Identifier of the model being offered (as per provider’s Model list)
+        price:
+          type: string
+          description: Price for the session or service (in MOR tokens)
+        status:
+          type: string
+          description: Current status of the bid (e.g., "open", "taken")
+      description: A provider’s offer (bid) for a model on the marketplace.
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Session identifier
+        provider:
+          type: string
+          description: Ethereum address of the provider in the session
+        consumer:
+          type: string
+          description: Ethereum address of the consumer in the session
+        modelId:
+          type: integer
+          description: Model identifier used in this session
+        status:
+          type: string
+          description: Current status of the session (e.g., "active", "closed")
+        startTime:
+          type: string
+          format: date-time
+          description: Session start time
+        endTime:
+          type: string
+          format: date-time
+          description: Session end time (if closed)
+      description: Information about an active or past session between a consumer and provider.
+    Transaction:
+      type: object
+      properties:
+        hash:
+          type: string
+          description: Transaction hash
+        from:
+          type: string
+          description: Source address
+        to:
+          type: string
+          description: Destination address
+        value:
+          type: string
+          description: Amount transferred (in wei or token units)
+        asset:
+          type: string
+          description: Asset type ("ETH" or "MOR")
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of the transaction
+      description: Details of a blockchain transaction involving the node’s wallet.
+    ChatMessage:
+      type: object
+      properties:
+        role:
+          type: string
+          description: Role of the message sender (e.g., "user" or "assistant")
+        message:
+          type: string
+          description: Content of the chat message
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of the message
+      required: [role, message]
+      description: A single message in a chat conversation.
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      description: Error response with an error message.
+  responses:
+    UnauthorizedError:
+      description: Authentication failed or user not permitted
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "Unauthorized"
+    BadRequestError:
+      description: Bad request (invalid input)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "Invalid request"
 
 security:
-  - ApiKeyAuth: []
+  - basicAuth: []  # All endpoints secured with Basic Auth&#8203;:contentReference[oaicite:7]{index=7}
 
 paths:
-  /blockchain/send/eth:
+  /auth/users:
     post:
-      summary: Send ETH to a specified address
-      operationId: sendEth
-      security:
-        - ApiKeyAuth: []
+      summary: Add or update a user (Admin only)
+      description: >-
+        Create a new API user or update an existing user's password and permissions. 
+        **Admin credentials required.**&#8203;:contentReference[oaicite:8]{index=8}&#8203;:contentReference[oaicite:9]{index=9}
+      tags: [Auth]
       requestBody:
-        description: Transaction details for sending ETH
         required: true
         content:
           application/json:
             schema:
               type: object
               properties:
-                to:
-                  $ref: '#/components/schemas/BlockchainId'
-                  description: Ethereum address to send ETH to
-                amount:
+                username:
                   type: string
-                  description: Amount of ETH to send
-                  example: '1.5'
-              required:
-                - to
-                - amount
-      responses:
-        '200':
-          description: ETH sent successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BalanceResponse'
-              examples:
-                success:
-                  value:
-                    balance: '9.5'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/send/mor:
-    post:
-      summary: Send MOR to a specified address
-      operationId: sendMor
-      security:
-        - ApiKeyAuth: []
-      requestBody:
-        description: Transaction details for sending MOR
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                to:
-                  $ref: '#/components/schemas/BlockchainId'
-                  description: Ethereum address to send MOR to
-                amount:
+                password:
                   type: string
-                  description: Amount of MOR to send
-                  example: '250'
-              required:
-                - to
-                - amount
+                methods:
+                  type: array
+                  items:
+                    type: string
+                  description: List of RPC method names the user is allowed to call
+              required: [username, password, methods]
+            example:
+              username: "agent"
+              password: "agentPassword"
+              methods: ["get_balance"]  # Example user allowed only the "get_balance" method&#8203;:contentReference[oaicite:10]{index=10}
       responses:
-        '200':
-          description: MOR sent successfully
+        "200":
+          description: User added/updated successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BalanceResponse'
-              examples:
-                success:
-                  value:
-                    balance: '750'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/models:
-    get:
-      summary: List all available models
-      operationId: listModels
+                type: object
+                properties:
+                  message:
+                    type: string
+              example:
+                message: "User added successfully"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
       security:
-        - ApiKeyAuth: []
-      responses:
-        '200':
-          description: A list of models
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ModelResponse'
-              examples:
-                success:
-                  value:
-                    - id: 'model_12345'
-                      modelID: 'mod-67890'
-                      ipfsID: 'QmX...'
-                      name: 'Image Recognition Model'
-                      stake: '1000'
-                      fee: '0.01'
-                      tags:
-                        - 'machine learning'
-                        - 'image recognition'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-    post:
-      summary: Create a new model
-      operationId: createModel
-      security:
-        - ApiKeyAuth: []
-      requestBody:
-        description: Details of the model to create
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateModelRequest'
-      responses:
-        '201':
-          description: Model created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ModelResponse'
-              examples:
-                success:
-                  value:
-                    id: 'model_12345'
-                    modelID: 'mod-67890'
-                    ipfsID: 'QmX...'
-                    name: 'Image Recognition Model'
-                    stake: '1000'
-                    fee: '0.01'
-                    tags:
-                      - 'machine learning'
-                      - 'image recognition'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/models/{id}:
+        - basicAuth: []  # Must authenticate as admin&#8203;:contentReference[oaicite:11]{index=11}
     delete:
-      summary: Delete a model
-      operationId: deleteModel
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Unique identifier of the model
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'model_12345'
-      responses:
-        '204':
-          description: Model deleted successfully
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/models/{id}/session:
-    post:
-      summary: Start a session for a model
-      operationId: startModelSession
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Model ID
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'model_12345'
+      summary: Remove a user (Admin only)
+      description: >-
+        Remove an existing API user’s access. **Admin credentials required.**&#8203;:contentReference[oaicite:12]{index=12}
+      tags: [Auth]
       requestBody:
-        description: Session details
         required: true
         content:
           application/json:
             schema:
               type: object
               properties:
-                sessionDuration:
+                username:
                   type: string
-                  description: Duration of the session
-                  example: '3600'
-              required:
-                - sessionDuration
+              required: [username]
+            example:
+              username: "agent"  # Username of the user to remove&#8203;:contentReference[oaicite:13]{index=13}
       responses:
-        '200':
-          description: Session started successfully
+        "200":
+          description: User removed successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionResponse'
-              examples:
-                success:
-                  value:
-                    id: 'session_abc123'
-                    sessionDuration: '3600'
-                    status: 'active'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+                type: object
+                properties:
+                  message:
+                    type: string
+              example:
+                message: "User removed successfully"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+      security:
+        - basicAuth: []  # Admin authentication required&#8203;:contentReference[oaicite:14]{index=14}
 
-  /blockchain/models/{id}/bids:
+  /balance:
     get:
-      summary: List bids for a model
-      operationId: listModelBids
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Model ID
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'model_12345'
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            description: Maximum number of results to return
-            example: 10
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            minimum: 0
-            description: Number of results to skip
-            example: 0
+      summary: Get wallet balance
+      description: >-
+        Retrieve the current MOR token balance of the node’s wallet (and optionally the ETH balance).&#8203;:contentReference[oaicite:15]{index=15}
+      tags: [Wallet]
       responses:
-        '200':
-          description: A list of bids
+        "200":
+          description: Current wallet balances
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BidListResponse'
-              examples:
-                success:
-                  value:
-                    bids:
-                      - id: 'bid_001'
-                        modelID: 'model_12345'
-                        pricePerSecond: '0.005'
-                      - id: 'bid_002'
-                        modelID: 'model_12345'
-                        pricePerSecond: '0.006'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+                type: object
+                properties:
+                  morBalance:
+                    type: string
+                    description: MOR token balance (in MOR)
+                  ethBalance:
+                    type: string
+                    description: ETH balance (in ETH)
+              example:
+                morBalance: "1000.0"
+                ethBalance: "0.5"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
 
-  /blockchain/models/{id}/bids/active:
+  /transactions:
     get:
-      summary: List active bids for a model
-      operationId: listActiveModelBids
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Model ID
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'model_12345'
+      summary: Get transaction history
+      description: >-
+        Get a list of recent blockchain transactions involving the node’s wallet (ETH and MOR).&#8203;:contentReference[oaicite:16]{index=16}
+      tags: [Wallet]
       responses:
-        '200':
-          description: A list of active bids
+        "200":
+          description: Recent transactions
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BidListResponse'
-              examples:
-                success:
-                  value:
-                    bids:
-                      - id: 'bid_003'
-                        modelID: 'model_12345'
-                        pricePerSecond: '0.007'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Transaction"
+              example:
+                transactions:
+                  - hash: "0xabcdef123456..."
+                    from: "0xYourWalletAddr..."
+                    to: "0xRecipientAddr..."
+                    value: "10000000000000000"
+                    asset: "ETH"
+                    timestamp: "2025-02-08T19:00:00Z"
+                  - hash: "0x123456abcdef..."
+                    from: "0xYourWalletAddr..."
+                    to: "0xAnotherAddr..."
+                    value: "25000000000000000000"
+                    asset: "MOR"
+                    timestamp: "2025-02-08T19:05:00Z"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
 
-  /blockchain/models/{id}/bids/rated:
+  /allowance:
     get:
-      summary: List rated bids for a model
-      operationId: listRatedModelBids
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Model ID
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'model_12345'
+      summary: Get MOR token allowance
+      description: >-
+        Check how many MOR tokens the marketplace contract is currently authorized to spend from the node’s wallet (MOR allowance).&#8203;:contentReference[oaicite:17]{index=17}
+      tags: [Wallet]
       responses:
-        '200':
-          description: A list of rated bids
+        "200":
+          description: MOR allowance for marketplace
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BidListResponse'
-              examples:
-                success:
-                  value:
-                    bids:
-                      - id: 'bid_004'
-                        modelID: 'model_12345'
-                        pricePerSecond: '0.008'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+                type: object
+                properties:
+                  allowance:
+                    type: string
+                    description: Amount of MOR tokens approved for spending
+              example:
+                allowance: "500.0"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
 
-  /blockchain/models/{id}/stats:
-    get:
-      summary: Retrieve statistics for a model
-      operationId: getModelStats
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Model ID
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'model_12345'
-      responses:
-        '200':
-          description: Model statistics
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ModelStatsResponse'
-              examples:
-                success:
-                  value:
-                    modelID: 'model_12345'
-                    stats:
-                      totalSessions: 150
-                      totalBids: 50
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/bids:
-    post:
-      summary: Create a new bid
-      operationId: createBid
-      security:
-        - ApiKeyAuth: []
-      requestBody:
-        description: Bid details
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                modelID:
-                  type: string
-                  description: ID of the model to bid on
-                  example: 'model_12345'
-                pricePerSecond:
-                  type: string
-                  description: Bid price per second
-                  example: '0.005'
-              required:
-                - modelID
-                - pricePerSecond
-      responses:
-        '201':
-          description: Bid created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BidResponse'
-              examples:
-                success:
-                  value:
-                    id: 'bid_005'
-                    modelID: 'model_12345'
-                    pricePerSecond: '0.005'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/bids/{id}:
-    get:
-      summary: Retrieve a bid
-      operationId: getBid
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Bid ID
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'bid_005'
-      responses:
-        '200':
-          description: Bid details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BidResponse'
-              examples:
-                success:
-                  value:
-                    id: 'bid_005'
-                    modelID: 'model_12345'
-                    pricePerSecond: '0.005'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-    delete:
-      summary: Delete a bid
-      operationId: deleteBid
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Bid ID
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'bid_005'
-      responses:
-        '204':
-          description: Bid deleted successfully
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/bids/{id}/session:
-    post:
-      summary: Start a session for a bid
-      operationId: startBidSession
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Bid ID
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'bid_005'
-      requestBody:
-        description: Session details
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                sessionDuration:
-                  type: string
-                  description: Duration of the session
-                  example: '3600'
-              required:
-                - sessionDuration
-      responses:
-        '200':
-          description: Session started successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SessionResponse'
-              examples:
-                success:
-                  value:
-                    id: 'session_def456'
-                    sessionDuration: '3600'
-                    status: 'active'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/sessions:
-    post:
-      summary: Create a new session
-      operationId: createSession
-      security:
-        - ApiKeyAuth: []
-      requestBody:
-        description: Session creation details
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                approval:
-                  type: string
-                  description: Approval identifier
-                  example: 'approval_abc123'
-                approvalSig:
-                  type: string
-                  description: Signature for the approval
-                  example: 'signature_xyz789'
-                stake:
-                  type: string
-                  description: Stake amount for the session
-                  example: '500'
-              required:
-                - approval
-                - approvalSig
-                - stake
-      responses:
-        '201':
-          description: Session created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SessionResponse'
-              examples:
-                success:
-                  value:
-                    id: 'session_ghi789'
-                    sessionDuration: '3600'
-                    status: 'active'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/sessions/{id}:
-    get:
-      summary: Retrieve a session
-      operationId: getSession
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Session ID
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'session_ghi789'
-      responses:
-        '200':
-          description: Session details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SessionResponse'
-              examples:
-                success:
-                  value:
-                    id: 'session_ghi789'
-                    sessionDuration: '3600'
-                    status: 'active'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/sessions/{id}/close:
-    post:
-      summary: Close a session
-      operationId: closeSession
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Session ID
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'session_ghi789'
-      responses:
-        '200':
-          description: Session closed successfully
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/sessions/budget:
-    get:
-      summary: Get session budget
-      operationId: getSessionBudget
-      security:
-        - ApiKeyAuth: []
-      responses:
-        '200':
-          description: Session budget details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BudgetResponse'
-              examples:
-                success:
-                  value:
-                    budget: '1500'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/sessions/user:
-    get:
-      summary: List user sessions
-      operationId: listUserSessions
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: user
-          in: query
-          description: User identifier
-          required: true
-          schema:
-            $ref: '#/components/schemas/BlockchainId'
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            description: Maximum number of results to return
-            example: 10
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            minimum: 0
-            description: Number of results to skip
-            example: 0
-      responses:
-        '200':
-          description: A list of user sessions
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SessionListResponse'
-              examples:
-                success:
-                  value:
-                    sessions:
-                      - id: 'session_jkl012'
-                        sessionDuration: '3600'
-                        status: 'active'
-                      - id: 'session_mno345'
-                        sessionDuration: '1800'
-                        status: 'closed'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/sessions/provider:
-    get:
-      summary: List provider sessions
-      operationId: listProviderSessions
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: provider
-          in: query
-          description: Provider identifier
-          required: true
-          schema:
-            $ref: '#/components/schemas/BlockchainId'
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            description: Maximum number of results to return
-            example: 10
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            minimum: 0
-            description: Number of results to skip
-            example: 0
-      responses:
-        '200':
-          description: A list of provider sessions
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SessionListResponse'
-              examples:
-                success:
-                  value:
-                    sessions:
-                      - id: 'session_pqr678'
-                        sessionDuration: '3600'
-                        status: 'active'
-                      - id: 'session_stu901'
-                        sessionDuration: '1800'
-                        status: 'closed'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/providers:
-    get:
-      summary: List providers
-      operationId: listProviders
-      security:
-        - ApiKeyAuth: []
-      responses:
-        '200':
-          description: A list of providers
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ProviderResponse'
-              examples:
-                success:
-                  value:
-                    - id: 'provider_001'
-                      endpoint: 'https://provider1.example.com'
-                      stake: '1000'
-                    - id: 'provider_002'
-                      endpoint: 'https://provider2.example.com'
-                      stake: '1500'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-    post:
-      summary: Create a new provider
-      operationId: createProvider
-      security:
-        - ApiKeyAuth: []
-      requestBody:
-        description: Provider details
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                endpoint:
-                  type: string
-                  description: Endpoint URL of the provider
-                  example: 'https://provider.example.com'
-                stake:
-                  type: string
-                  description: Amount to stake for the provider
-                  example: '2000'
-              required:
-                - endpoint
-                - stake
-      responses:
-        '201':
-          description: Provider created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProviderResponse'
-              examples:
-                success:
-                  value:
-                    id: 'provider_003'
-                    endpoint: 'https://provider3.example.com'
-                    stake: '2000'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/providers/{id}:
-    delete:
-      summary: Delete a provider
-      operationId: deleteProvider
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Provider ID
-          required: true
-          schema:
-            $ref: '#/components/schemas/BlockchainId'
-      responses:
-        '204':
-          description: Provider deleted successfully
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/providers/{id}/bids:
-    get:
-      summary: List bids for a provider
-      operationId: listProviderBids
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Provider ID
-          required: true
-          schema:
-            $ref: '#/components/schemas/BlockchainId'
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            description: Maximum number of results to return
-            example: 10
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            minimum: 0
-            description: Number of results to skip
-            example: 0
-      responses:
-        '200':
-          description: A list of bids
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BidListResponse'
-              examples:
-                success:
-                  value:
-                    bids:
-                      - id: 'bid_006'
-                        modelID: 'model_67890'
-                        pricePerSecond: '0.009'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/providers/{id}/bids/active:
-    get:
-      summary: List active bids for a provider
-      operationId: listProviderActiveBids
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Provider ID
-          required: true
-          schema:
-            $ref: '#/components/schemas/BlockchainId'
-      responses:
-        '200':
-          description: A list of active bids
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BidListResponse'
-              examples:
-                success:
-                  value:
-                    bids:
-                      - id: 'bid_007'
-                        modelID: 'model_67890'
-                        pricePerSecond: '0.010'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/balance:
-    get:
-      summary: Retrieve balance
-      operationId: getBalance
-      security:
-        - ApiKeyAuth: []
-      responses:
-        '200':
-          description: Balance details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BalanceResponse'
-              examples:
-                success:
-                  value:
-                    balance: '5000'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/allowance:
-    get:
-      summary: Retrieve allowance
-      operationId: getAllowance
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: spender
-          in: query
-          description: Spender Ethereum address
-          required: true
-          schema:
-            $ref: '#/components/schemas/BlockchainId'
-      responses:
-        '200':
-          description: Allowance details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AllowanceResponse'
-              examples:
-                success:
-                  value:
-                    allowance: '1000'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/approve:
-    post:
-      summary: Approve allowance
-      operationId: approveAllowance
-      security:
-        - ApiKeyAuth: []
-      requestBody:
-        description: Approval details
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                spender:
-                  $ref: '#/components/schemas/BlockchainId'
-                  description: Spender Ethereum address
-                amount:
-                  type: string
-                  description: Amount to approve
-                  example: '500'
-              required:
-                - spender
-                - amount
-      responses:
-        '200':
-          description: Allowance approved successfully
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/latestBlock:
+  /latest-block:
     get:
       summary: Get latest block number
-      operationId: getLatestBlock
-      security:
-        - ApiKeyAuth: []
+      description: >-
+        Retrieve the latest blockchain block number observed by the node.&#8203;:contentReference[oaicite:18]{index=18}
+      tags: [Wallet]
       responses:
-        '200':
-          description: Latest block details
+        "200":
+          description: Latest block info
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LatestBlockResponse'
-              examples:
-                success:
-                  value:
-                    blockNumber: '12345678'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+                type: object
+                properties:
+                  latestBlock:
+                    type: integer
+                    description: Latest block number
+              example:
+                latestBlock: 12345678
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
 
-  /blockchain/token/supply:
-    get:
-      summary: Get token supply
-      operationId: getTokenSupply
-      security:
-        - ApiKeyAuth: []
-      responses:
-        '200':
-          description: Token supply details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TokenSupplyResponse'
-              examples:
-                success:
-                  value:
-                    supply: '1000000'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /blockchain/transactions:
-    get:
-      summary: List transactions
-      operationId: listTransactions
-      security:
-        - ApiKeyAuth: []
-      responses:
-        '200':
-          description: A list of transactions
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TransactionListResponse'
-              examples:
-                success:
-                  value:
-                    transactions:
-                      - id: 'txn_001'
-                        amount: '50'
-                        type: 'deposit'
-                      - id: 'txn_002'
-                        amount: '25'
-                        type: 'withdrawal'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /proxy/sessions/initiate:
+  /approve:
     post:
-      summary: Initiate a proxy session
-      operationId: initiateProxySession
-      security:
-        - ApiKeyAuth: []
+      summary: Approve MOR token spending
+      description: >-
+        Authorize the marketplace smart contract to spend MOR tokens on behalf of the node’s wallet (ERC-20 approve).&#8203;:contentReference[oaicite:19]{index=19} 
+        Typically done by providers/consumers before creating bids or purchasing sessions.
+      tags: [Wallet]
       requestBody:
-        description: Session initiation details
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: string
+                  description: Amount of MOR tokens to allow the contract to spend
+              required: [amount]
+            example:
+              amount: "1000.0"
+      responses:
+        "200":
+          description: Approval transaction submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionHash:
+                    type: string
+                    description: Hash of the approval transaction
+              example:
+                transactionHash: "0xabcdef1234567890..."
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+
+  /send-eth:
+    post:
+      summary: Send ETH
+      description: >-
+        Transfer ETH from the node’s wallet to another address (on the configured chain).&#8203;:contentReference[oaicite:20]{index=20}
+      tags: [Wallet]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                to:
+                  type: string
+                  description: Destination Ethereum address
+                amount:
+                  type: string
+                  description: Amount of ETH to send (in ETH)
+              required: [to, amount]
+            example:
+              to: "0xRecipientAddress123..."
+              amount: "0.5"
+      responses:
+        "200":
+          description: ETH transfer transaction submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionHash:
+                    type: string
+              example:
+                transactionHash: "0x123456abcdef7890..."
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+
+  /send-mor:
+    post:
+      summary: Send MOR tokens
+      description: >-
+        Transfer MOR tokens from the node’s wallet to another address.&#8203;:contentReference[oaicite:21]{index=21}
+      tags: [Wallet]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                to:
+                  type: string
+                  description: Destination Ethereum address
+                amount:
+                  type: string
+                  description: Amount of MOR to send (in MOR tokens)
+              required: [to, amount]
+            example:
+              to: "0xRecipientAddressABC..."
+              amount: "250.0"
+      responses:
+        "200":
+          description: MOR token transfer transaction submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionHash:
+                    type: string
+              example:
+                transactionHash: "0x7890abcdef123456..."
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+
+  /budget:
+    get:
+      summary: Get current session budget
+      description: >-
+        If a session is active, retrieve the remaining MOR token budget (stake) for the session. 
+        This decreases as the session time elapses or usage accrues.&#8203;:contentReference[oaicite:22]{index=22}
+      tags: [Wallet]
+      responses:
+        "200":
+          description: Remaining session budget
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  remainingBudget:
+                    type: string
+                    description: Remaining MOR tokens budgeted for the current session
+              example:
+                remainingBudget: "750.0"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+
+  /supply:
+    get:
+      summary: Get MOR token total supply
+      description: >-
+        Retrieve the total supply of MOR tokens (on the connected network).&#8203;:contentReference[oaicite:23]{index=23}
+      tags: [Wallet]
+      responses:
+        "200":
+          description: Total MOR token supply
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  morSupply:
+                    type: string
+                    description: Total circulating supply of MOR
+              example:
+                morSupply: "1000000000.0"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+
+  /providers:
+    get:
+      summary: Get providers
+      description: >-
+        List all registered provider nodes on the marketplace (from the blockchain).&#8203;:contentReference[oaicite:24]{index=24}
+      tags: [Providers]
+      responses:
+        "200":
+          description: List of active providers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: string
+                      description: Ethereum address of a provider
+              example:
+                providers:
+                  - "0xProviderAddress1..."
+                  - "0xProviderAddress2..."
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    post:
+      summary: Register as provider
+      description: >-
+        Register this node as a provider on the marketplace (blockchain). This may stake required MOR tokens if applicable.&#8203;:contentReference[oaicite:25]{index=25}
+      tags: [Providers]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stake:
+                  type: string
+                  description: Optional MOR amount to stake as provider (if required)
+            example:
+              stake: "1000.0"
+      responses:
+        "200":
+          description: Provider registration transaction submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionHash:
+                    type: string
+              example:
+                transactionHash: "0xabcdef1234provider..."
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+    delete:
+      summary: Deregister provider
+      description: >-
+        Deregister this node as a provider (withdraw stake) on the marketplace. 
+      tags: [Providers]
+      responses:
+        "200":
+          description: Provider deregistration transaction submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionHash:
+                    type: string
+              example:
+                transactionHash: "0xproviderremove1234..."
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+
+  /models:
+    get:
+      summary: Get models
+      description: >-
+        List models configured on this node. For a provider node, these are the models available to offer; 
+        for a consumer, this may return an empty list (no hosted models).&#8203;:contentReference[oaicite:26]{index=26}
+      tags: [Models]
+      responses:
+        "200":
+          description: List of configured models
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Model"
+              example:
+                models:
+                  - id: 1
+                    name: "ExampleModel"
+                    endpoint: "http://127.0.0.1:8000"
+                    description: "Local example model"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    post:
+      summary: Add a model
+      description: >-
+        Add a new model to the node’s configuration (provider adds a model to offer, or register a local model).
+      tags: [Models]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                endpoint:
+                  type: string
+                description:
+                  type: string
+              required: [name, endpoint]
+            example:
+              name: "MyModel"
+              endpoint: "http://localhost:8000"
+              description: "My local LLM"
+      responses:
+        "200":
+          description: Model added successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Model"
+              example:
+                id: 2
+                name: "MyModel"
+                endpoint: "http://localhost:8000"
+                description: "My local LLM"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+    delete:
+      summary: Remove a model
+      description: >-
+        Remove a model from the node’s configuration (provider stops offering that model).
+      tags: [Models]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Name of the model to remove
+              required: [name]
+            example:
+              name: "MyModel"
+      responses:
+        "200":
+          description: Model removed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+              example:
+                message: "Model removed"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+
+  /models/local:
+    get:
+      summary: Get local models
+      description: >-
+        List any AI models running locally on this node (e.g., the included sample model for demonstration).&#8203;:contentReference[oaicite:27]{index=27}
+      tags: [Models]
+      responses:
+        "200":
+          description: List of local models
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Model"
+              example:
+                models:
+                  - id: 0
+                    name: "TinyLlama"
+                    endpoint: "http://127.0.0.1:8000"
+                    description: "Built-in demo model"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+
+  /bids:
+    get:
+      summary: Get bids
+      description: >-
+        List all active bids (model offerings) on the marketplace. Consumers use this to discover available models.&#8203;:contentReference[oaicite:28]{index=28}
+      tags: [Bids]
+      responses:
+        "200":
+          description: List of active bids
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bids:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Bid"
+              example:
+                bids:
+                  - id: 1
+                    provider: "0xProviderAddress1..."
+                    modelId: 1
+                    price: "10.0"
+                    status: "open"
+                  - id: 2
+                    provider: "0xProviderAddress2..."
+                    modelId: 3
+                    price: "5.5"
+                    status: "open"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    post:
+      summary: Create a bid
+      description: >-
+        Create a new bid (offer) for a model. Providers call this to list a model for consumers with a specified price.&#8203;:contentReference[oaicite:29]{index=29}
+      tags: [Bids]
+      requestBody:
         required: true
         content:
           application/json:
@@ -1168,460 +756,391 @@ paths:
               type: object
               properties:
                 modelId:
+                  type: integer
+                  description: ID of the model to offer (as listed in /models)
+                price:
                   type: string
-                  description: Model ID to initiate session with
-                  example: 'model_12345'
-                sessionDuration:
-                  type: string
-                  description: Duration of the session
-                  example: '3600'
-              required:
-                - modelId
-                - sessionDuration
+                  description: Price for the session or service (in MOR)
+              required: [modelId, price]
+            example:
+              modelId: 1
+              price: "10.0"
       responses:
-        '200':
-          description: Proxy session initiated
+        "200":
+          description: Bid created successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionResponse'
-              examples:
-                success:
-                  value:
-                    id: 'session_xyz123'
-                    sessionDuration: '3600'
-                    status: 'active'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /proxy/sessions/{id}/providerClaimableBalance:
-    get:
-      summary: Get provider claimable balance
-      operationId: getProviderClaimableBalance
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Session ID
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'session_xyz123'
-      responses:
-        '200':
-          description: Claimable balance details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ClaimableBalanceResponse'
-              examples:
-                success:
-                  value:
-                    balance: '250'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /proxy/sessions/{id}/providerClaim:
-    post:
-      summary: Claim provider balance
-      operationId: claimProviderBalance
-      security:
-        - ApiKeyAuth: []
-      parameters:
-        - name: id
-          in: path
-          description: Session ID
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9a-fA-F]+$'
-            example: 'session_xyz123'
+                $ref: "#/components/schemas/Bid"
+              example:
+                id: 3
+                provider: "0xYourProviderAddress..."
+                modelId: 1
+                price: "10.0"
+                status: "open"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+    delete:
+      summary: Cancel bids
+      description: >-
+        Cancel an existing bid (or all bids) offered by this provider. The bid will no longer be available for purchase.&#8203;:contentReference[oaicite:30]{index=30}
+      tags: [Bids]
       requestBody:
-        description: Claim details
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bidId:
+                  type: integer
+                  description: ID of the bid to cancel (omit to cancel all your bids)
+            example:
+              bidId: 3
+      responses:
+        "200":
+          description: Bid(s) cancelled successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+              example:
+                message: "Bid cancelled"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+
+  /sessions:
+    get:
+      summary: Get sessions
+      description: >-
+        List current or recent sessions involving this node (either as consumer or provider).&#8203;:contentReference[oaicite:31]{index=31}
+      tags: [Sessions]
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Session"
+              example:
+                sessions:
+                  - id: "session123"
+                    provider: "0xProviderAddr..."
+                    consumer: "0xConsumerAddr..."
+                    modelId: 1
+                    status: "active"
+                    startTime: "2025-02-08T19:10:00Z"
+                  - id: "session122"
+                    provider: "0xProviderAddr..."
+                    consumer: "0xConsumerAddr..."
+                    modelId: 3
+                    status: "closed"
+                    startTime: "2025-02-08T18:00:00Z"
+                    endTime: "2025-02-08T18:30:00Z"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    post:
+      summary: Open a session (consumer)
+      description: >-
+        Open a new session to a provider’s model. A consumer calls this to purchase a bid and initiate a session for prompt/response exchange.&#8203;:contentReference[oaicite:32]{index=32}
+      tags: [Sessions]
+      requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
               properties:
-                claim:
-                  type: string
-                  description: Claim identifier
-                  example: 'claim_abc123'
-              required:
-                - claim
+                bidId:
+                  type: integer
+                  description: ID of the bid to purchase/open
+              required: [bidId]
+            example:
+              bidId: 1
       responses:
-        '200':
-          description: Provider balance claimed
+        "200":
+          description: Session opened successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClaimableBalanceResponse'
-              examples:
-                success:
-                  value:
-                    balance: '0'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+                type: object
+                properties:
+                  sessionId:
+                    type: string
+                    description: Identifier of the new session
+              example:
+                sessionId: "session123"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+    delete:
+      summary: Close session (consumer)
+      description: >-
+        Close an active session. A consumer can call this to terminate the session early (releasing any remaining budget).&#8203;:contentReference[oaicite:33]{index=33}
+      tags: [Sessions]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sessionId:
+                  type: string
+                  description: ID of the session to close (if not provided, closes the current session)
+            example:
+              sessionId: "session123"
+      responses:
+        "200":
+          description: Session closed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionHash:
+                    type: string
+                    description: Transaction hash of the session close settlement
+              example:
+                transactionHash: "0xsesscloseabcd1234..."
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
 
-components:
-  securitySchemes:
-    ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: X-API-Key
-      description: API key required to authenticate requests.
+  /sessions/claim:
+    post:
+      summary: Claim session stake (provider)
+      description: >-
+        Claim the staked MOR tokens for a completed session (provider action). Providers call this after a session ends to claim the payment from the consumer’s stake.&#8203;:contentReference[oaicite:34]{index=34}
+      tags: [Sessions]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sessionId:
+                  type: string
+                  description: ID of the session to claim (if not provided, claims the most recently ended session)
+            example:
+              sessionId: "session123"
+      responses:
+        "200":
+          description: Session claim transaction submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionHash:
+                    type: string
+              example:
+                transactionHash: "0xclaimtxabcdef..."
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
 
-  responses:
-    BadRequest:
-      description: Bad Request
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          examples:
-            bad_request:
-              value:
-                code: 400
-                message: 'Invalid request parameters.'
-    Unauthorized:
-      description: Unauthorized
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          examples:
-            unauthorized:
-              value:
-                code: 401
-                message: 'Missing or invalid API key.'
-    NotFound:
-      description: Resource Not Found
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          examples:
-            not_found:
-              value:
-                code: 404
-                message: 'The requested resource was not found.'
-    InternalServerError:
-      description: Internal Server Error
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          examples:
-            server_error:
-              value:
-                code: 500
-                message: 'An unexpected error occurred.'
+  /sessions/initiate:
+    post:
+      summary: Initiate session connection (provider)
+      description: >-
+        Initiate the network connection for a new session. A provider calls this after a consumer opens a session, to establish the routing channel for prompt and inference data.&#8203;:contentReference[oaicite:35]{index=35}
+      tags: [Sessions]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sessionId:
+                  type: string
+                  description: ID of the session to initiate (if needed)
+            example:
+              sessionId: "session123"
+      responses:
+        "200":
+          description: Session connection initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+              example:
+                message: "Session connection established"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
 
-  schemas:
-    BlockchainId:
-      type: string
-      pattern: '^[A-Fa-f0-9]{40}$'
-      example: '4592d8f8d7b001e72cb26a73e4fa1806a51ac79d'
-      description: Blockchain address in hexadecimal format without '0x' prefix
+  /chat:
+    post:
+      summary: Send chat prompt
+      description: >-
+        Send a prompt to the model and receive the model’s response. This endpoint is used during an open session to exchange messages (prompts and completions).&#8203;:contentReference[oaicite:36]{index=36}
+      tags: [Chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  description: The user's prompt or message to send to the model
+              required: [message]
+            example:
+              message: "Hello, how are you?"
+      responses:
+        "200":
+          description: Model response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: string
+                    description: The assistant/model's response to the prompt
+              example:
+                response: "Hello! I am doing well. How can I assist you today?"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
 
-    BalanceResponse:
-      type: object
-      properties:
-        balance:
-          type: string
-          description: Current balance after the transaction
-          example: '9.5'
-      required:
-        - balance
+  /chat/history:
+    get:
+      summary: Get chat history
+      description: >-
+        Retrieve the history of the chat conversation for the current session (the sequence of prompts and responses).&#8203;:contentReference[oaicite:37]{index=37}
+      tags: [Chat]
+      responses:
+        "200":
+          description: Chat message history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  history:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ChatMessage"
+              example:
+                history:
+                  - role: "user"
+                    message: "Hello, how are you?"
+                    timestamp: "2025-02-08T19:11:00Z"
+                  - role: "assistant"
+                    message: "Hello! I am doing well. How can I assist you today?"
+                    timestamp: "2025-02-08T19:11:05Z"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    put:
+      summary: Edit chat history
+      description: >-
+        Modify an entry in the current session's chat history. This can be used by an agent to alter or remove a message (for example, to correct a user query before sending to the model).&#8203;:contentReference[oaicite:38]{index=38}
+      tags: [Chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                index:
+                  type: integer
+                  description: Index of the message in the history to edit (0-based)
+                newMessage:
+                  type: string
+                  description: The new content for the message at that index (if empty, the message could be removed)
+              required: [index, newMessage]
+            example:
+              index: 0
+              newMessage: "Hi, how are you doing today?"
+      responses:
+        "200":
+          description: Chat history edited successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  history:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ChatMessage"
+              example:
+                history:
+                  - role: "user"
+                    message: "Hi, how are you doing today?"
+                  - role: "assistant"
+                    message: "Hello! I am doing well. How can I assist you today?"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
 
-    ModelResponse:
-      type: object
-      properties:
-        id:
-          type: string
-          description: Unique identifier of the model
-          example: 'model_12345'
-        modelID:
-          type: string
-          description: Model ID provided by the user
-          example: 'mod-67890'
-        ipfsID:
-          type: string
-          description: IPFS ID where the model is stored
-          example: 'QmX...'
-        name:
-          type: string
-          description: Name of the model
-          example: 'Image Recognition Model'
-        stake:
-          type: string
-          description: Amount staked for the model
-          example: '1000'
-        fee:
-          type: string
-          description: Fee for using the model
-          example: '0.01'
-        tags:
-          type: array
-          items:
-            type: string
-          description: Tags associated with the model
-          example:
-            - 'machine learning'
-            - 'image recognition'
-      required:
-        - id
-        - modelID
-        - ipfsID
-        - name
-        - stake
-        - fee
-
-    CreateModelRequest:
-      type: object
-      properties:
-        modelID:
-          type: string
-          description: Model ID provided by the user
-          example: 'mod-67890'
-        ipfsID:
-          type: string
-          description: IPFS ID where the model is stored
-          example: 'QmX...'
-        name:
-          type: string
-          description: Name of the model
-          example: 'Image Recognition Model'
-        stake:
-          type: string
-          description: Amount to stake for the model
-          example: '1000'
-        fee:
-          type: string
-          description: Fee for using the model
-          example: '0.01'
-        tags:
-          type: array
-          items:
-            type: string
-          description: Tags associated with the model
-          example:
-            - 'machine learning'
-            - 'image recognition'
-      required:
-        - modelID
-        - ipfsID
-        - name
-        - stake
-        - fee
-
-    SessionResponse:
-      type: object
-      properties:
-        id:
-          type: string
-          description: Unique identifier of the session
-          example: 'session_abc123'
-        sessionDuration:
-          type: string
-          description: Duration of the session in seconds
-          example: '3600'
-        status:
-          type: string
-          description: Status of the session
-          example: 'active'
-      required:
-        - id
-        - sessionDuration
-        - status
-
-    BidListResponse:
-      type: object
-      properties:
-        bids:
-          type: array
-          items:
-            $ref: '#/components/schemas/BidResponse'
-          description: List of bids
-      required:
-        - bids
-
-    BidResponse:
-      type: object
-      properties:
-        id:
-          type: string
-          description: Unique identifier of the bid
-          example: 'bid_005'
-        modelID:
-          type: string
-          description: ID of the model the bid is for
-          example: 'model_12345'
-        pricePerSecond:
-          type: string
-          description: Bid price per second
-          example: '0.005'
-      required:
-        - id
-        - modelID
-        - pricePerSecond
-
-    ModelStatsResponse:
-      type: object
-      properties:
-        modelID:
-          type: string
-          description: ID of the model
-          example: 'model_12345'
-        stats:
-          type: object
-          additionalProperties: true
-          description: Statistics related to the model
-          example:
-            totalSessions: 150
-            totalBids: 50
-      required:
-        - modelID
-        - stats
-
-    BudgetResponse:
-      type: object
-      properties:
-        budget:
-          type: string
-          description: Current session budget
-          example: '1500'
-      required:
-        - budget
-
-    SessionListResponse:
-      type: object
-      properties:
-        sessions:
-          type: array
-          items:
-            $ref: '#/components/schemas/SessionResponse'
-          description: List of sessions
-      required:
-        - sessions
-
-    ProviderResponse:
-      type: object
-      properties:
-        id:
-          $ref: '#/components/schemas/BlockchainId'
-          description: Unique identifier of the provider
-        endpoint:
-          type: string
-          description: Endpoint URL of the provider
-          example: 'https://provider1.example.com'
-        stake:
-          type: string
-          description: Amount staked by the provider
-          example: '1000'
-      required:
-        - id
-        - endpoint
-        - stake
-
-    AllowanceResponse:
-      type: object
-      properties:
-        allowance:
-          type: string
-          description: Current allowance amount
-          example: '1000'
-      required:
-        - allowance
-
-    LatestBlockResponse:
-      type: object
-      properties:
-        blockNumber:
-          type: string
-          description: Latest block number on the blockchain
-          example: '12345678'
-      required:
-        - blockNumber
-
-    TokenSupplyResponse:
-      type: object
-      properties:
-        supply:
-          type: string
-          description: Total supply of the token
-          example: '1000000'
-      required:
-        - supply
-
-    TransactionListResponse:
-      type: object
-      properties:
-        transactions:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: string
-                description: Transaction ID
-                example: 'txn_001'
-              amount:
-                type: string
-                description: Amount involved in the transaction
-                example: '50'
-              type:
-                type: string
-                description: Type of transaction
-                example: 'deposit'
-            required:
-              - id
-              - amount
-              - type
-          description: List of transactions
-      required:
-        - transactions
-
-    ClaimableBalanceResponse:
-      type: object
-      properties:
-        balance:
-          type: string
-          description: Amount claimable by the provider
-          example: '250'
-      required:
-        - balance
-
-    ErrorResponse:
-      type: object
-      properties:
-        code:
-          type: integer
-          description: HTTP status code
-          example: 400
-        message:
-          type: string
-          description: Error message detailing what went wrong
-          example: 'Invalid request parameters.'
-      required:
-        - code
-        - message
+  /system/config:
+    get:
+      summary: Get system configuration
+      description: >-
+        Retrieve information about the node’s current configuration and environment (network and contract details, etc.).&#8203;:contentReference[oaicite:39]{index=39}
+      tags: [System]
+      responses:
+        "200":
+          description: System configuration details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    description: Software build version
+                  network:
+                    type: string
+                    description: Network name (e.g., "Arbitrum One" or testnet)
+                  chainId:
+                    type: integer
+                    description: Ethereum chain ID in use
+                  morTokenAddress:
+                    type: string
+                    description: Address of the MOR token contract
+                  marketplaceAddress:
+                    type: string
+                    description: Address of the marketplace (Diamond) contract
+                  walletAddress:
+                    type: string
+                    description: Address of the node’s wallet
+                  mode:
+                    type: string
+                    description: Node role mode ("provider" or "consumer")
+              example:
+                version: "2.0.0"
+                network: "Arbitrum One"
+                chainId: 42161
+                morTokenAddress: "0x092bAaDB7DEf4C3981454dD9c0A0D7FF07bCFc86"
+                marketplaceAddress: "0xDE819AaEE474626E3f34Ef0263373357e5a6C71b"
+                walletAddress: "0xYourWalletAddress..."
+                mode: "consumer"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
