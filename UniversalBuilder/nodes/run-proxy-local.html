@@ -1,0 +1,57 @@
+<script type="text/html" data-template-name="run-proxy-local">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-proxyPort"><i class="fa fa-random"></i> Proxy Port</label>
+        <input type="number" id="node-input-proxyPort" placeholder="8080">
+    </div>
+    <div class="form-row">
+        <label for="node-input-apiPort"><i class="fa fa-random"></i> API Port</label>
+        <input type="number" id="node-input-apiPort" placeholder="3000">
+    </div>
+    <div class="form-row">
+        <label for="node-input-proxyImage"><i class="fa fa-docker"></i> Image</label>
+        <input type="text" id="node-input-proxyImage" placeholder="proxy:latest">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="run-proxy-local">
+    <p>A node for running the proxy container locally during development.</p>
+    <h3>Inputs</h3>
+    <dl class="message-properties">
+        <dt>proxyPort <span class="property-type">number</span></dt>
+        <dd>The port to expose for the proxy service (default: 8080)</dd>
+        <dt>apiPort <span class="property-type">number</span></dt>
+        <dd>The port to expose for the API service (default: 3000)</dd>
+        <dt>proxyImage <span class="property-type">string</span></dt>
+        <dd>The Docker image to run (default: proxy:latest)</dd>
+        <dt>env <span class="property-type">object</span></dt>
+        <dd>Environment variables to pass to the container</dd>
+    </dl>
+    <h3>Outputs</h3>
+    <dl class="message-properties">
+        <dt>containerId <span class="property-type">string</span></dt>
+        <dd>The ID of the started container</dd>
+    </dl>
+</script>
+
+<script type="text/javascript">
+    RED.nodes.registerType('run-proxy-local',{
+        category: 'Future Cloud',
+        color: '#4363d8',
+        defaults: {
+            name: {value:""},
+            proxyPort: {value: 8080, validate: RED.validators.number()},
+            apiPort: {value: 3000, validate: RED.validators.number()},
+            proxyImage: {value: "proxy:latest"}
+        },
+        inputs:1,
+        outputs:1,
+        icon: "font-awesome/fa-docker",
+        label: function() {
+            return this.name||"Run Proxy Locally";
+        }
+    });
+</script> 

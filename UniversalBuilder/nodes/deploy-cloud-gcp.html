@@ -1,26 +1,51 @@
-<script type="text/html" data-template-name="cloud-gcp">
+<script type="text/html" data-template-name="deploy-cloud-run">
     <div class="form-row">
         <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
         <input type="text" id="node-input-name" placeholder="Name">
     </div>
+    <div class="form-row">
+        <label for="node-input-project"><i class="fa fa-folder"></i> GCP Project ID</label>
+        <input type="text" id="node-input-project" placeholder="my-project-id">
+    </div>
+    <div class="form-row">
+        <label for="node-input-region"><i class="fa fa-globe"></i> Region</label>
+        <input type="text" id="node-input-region" placeholder="us-central1">
+    </div>
+    <div class="form-row">
+        <label for="node-input-service"><i class="fa fa-server"></i> Service Name</label>
+        <input type="text" id="node-input-service" placeholder="my-service">
+    </div>
 </script>
 
-<script type="text/html" data-help-name="cloud-gcp">
-    <p>A node for deploying to Google Cloud Platform in the Morpheus network.</p>
+<script type="text/html" data-help-name="deploy-cloud-run">
+    <p>A node for deploying to Google Cloud Run service.</p>
+    <h3>Inputs</h3>
+    <dl class="message-properties">
+        <dt>project <span class="property-type">string</span></dt>
+        <dd>The Google Cloud Project ID</dd>
+        <dt>region <span class="property-type">string</span></dt>
+        <dd>The Google Cloud region to deploy to</dd>
+        <dt>service <span class="property-type">string</span></dt>
+        <dd>The name of the Cloud Run service</dd>
+    </dl>
 </script>
 
 <script type="text/javascript">
-    RED.nodes.registerType('deploy-cloud-gcp',{
+    RED.nodes.registerType('deploy-cloud-run',{
         category: 'Future Cloud',
         color: '#4363d8',
         defaults: {
-            name: {value:""}
+            name: {value:""},
+            project: {value: "", required: true},
+            region: {value: "us-central1", required: true},
+            service: {value: "", required: true}
         },
         inputs:1,
         outputs:1,
-        icon: "font-awesome/fa-cloud",
+        icon: "font-awesome/fa-google",
         label: function() {
-            return this.name||"GCP";
-        }
+            return this.name||"Cloud Run";
+        },
+        paletteLabel: "Google Cloud Run"
     });
 </script> 

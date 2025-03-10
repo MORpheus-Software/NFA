@@ -1,7 +1,13 @@
 module.exports = function(RED) {
-    function CloudGCPNode(config) {
+    function DeployCloudRunNode(config) {
         RED.nodes.createNode(this, config);
         var node = this;
+        
+        // Store Cloud Run specific configuration
+        this.name = config.name;
+        this.project = config.project;
+        this.region = config.region;
+        this.service = config.service;
 
         node.on('input', function(msg, send, done) {
             // Pass through execution
@@ -11,19 +17,5 @@ module.exports = function(RED) {
             }
         });
     }
-
-    RED.nodes.registerType("deploy-cloud-gcp", CloudGCPNode, {
-        category: "Future Cloud",
-        color: "#4363d8",
-        defaults: {
-            name: { value: "" }
-        },
-        inputs: 1,
-        outputs: 1,
-        icon: "font-awesome/fa-cloud",
-        label: function() {
-            return this.name || "GCP";
-        },
-        paletteLabel: "GCP"
-    });
+    RED.nodes.registerType("deploy-cloud-run", DeployCloudRunNode);
 }

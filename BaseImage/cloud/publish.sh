@@ -1,15 +1,14 @@
 #!/bin/bash
 
-# Source version from .env
-VERSION=$(grep NFA_PROXY_VERSION ../.env | cut -d '"' -f2)
+# Source environment variables
+source .env
 
 # Set variables
 IMAGE_NAME="openai-morpheus-proxy"
-REGISTRY="srt0422"  # Using Docker Hub registry
+REGISTRY="srt0422"
 
-# Push to Docker Hub
-echo "Pushing to Docker Hub..."
-docker push ${REGISTRY}/${IMAGE_NAME}:${VERSION}
+echo "Publishing version ${NFA_PROXY_VERSION} to Docker Hub..."
+docker push ${REGISTRY}/${IMAGE_NAME}:${NFA_PROXY_VERSION}
 docker push ${REGISTRY}/${IMAGE_NAME}:latest
 
-echo "Image published successfully to Docker Hub!" 
+echo "Publish completed successfully!" 

@@ -1,0 +1,168 @@
+[
+    {
+        "id": "deploy-flow-tab",
+        "type": "tab",
+        "label": "Cloud Run Deployment",
+        "disabled": false,
+        "info": "# Cloud Run Deployment Example\n\nThis flow demonstrates how to deploy the Morpheus Consumer to Google Cloud Run.\n\nPrerequisites:\n1. Google Cloud Platform account with billing enabled\n2. Docker registry access (Docker Hub or GCR)\n3. Node-RED with UniversalBuilder nodes installed\n\nClick the deploy button to start the deployment process."
+    },
+    {
+        "id": "inject-node",
+        "type": "inject",
+        "z": "deploy-flow-tab",
+        "name": "Start Deployment",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{}",
+        "payloadType": "json",
+        "x": 150,
+        "y": 120,
+        "wires": [
+            [
+                "config-node"
+            ]
+        ]
+    },
+    {
+        "id": "config-node",
+        "type": "deploy-config",
+        "z": "deploy-flow-tab",
+        "name": "Deployment Configuration",
+        "projectId": "morpheus-test-project",
+        "region": "us-west1",
+        "dockerRegistry": "username",
+        "proxyImage": "morpheus-proxy",
+        "consumerImage": "morpheus-consumer",
+        "proxyVersion": "v0.0.31",
+        "consumerVersion": "v0.0.19",
+        "proxyPort": "8080",
+        "consumerPort": "8081",
+        "zone": "a",
+        "x": 350,
+        "y": 120,
+        "wires": [
+            [
+                "proxy-node"
+            ]
+        ]
+    },
+    {
+        "id": "proxy-node",
+        "type": "deploy-proxy",
+        "z": "deploy-flow-tab",
+        "name": "Deploy Proxy",
+        "proxyImage": "morpheus-proxy",
+        "proxyVersion": "v0.0.31",
+        "internalApiPort": "8080",
+        "marketplacePort": "3333",
+        "consumerUsername": "admin",
+        "consumerPassword": "password",
+        "sessionDuration": "1h",
+        "x": 580,
+        "y": 120,
+        "wires": [
+            [
+                "consumer-node"
+            ]
+        ]
+    },
+    {
+        "id": "consumer-node",
+        "type": "deploy-consumer",
+        "z": "deploy-flow-tab",
+        "name": "Deploy Consumer",
+        "consumerImage": "morpheus-consumer",
+        "consumerVersion": "v0.0.19",
+        "consumerUsername": "admin",
+        "consumerPassword": "password",
+        "walletKey": "",
+        "contractAddress": "0xb8C55cD613af947E73E262F0d3C54b7211Af16CF",
+        "morTokenAddress": "0x34a285a1b1c166420df5b6630132542923b5b27e",
+        "blockchainWsUrl": "wss://sepolia-rollup.arbitrum.io/feed",
+        "blockchainHttpUrl": "https://sepolia-rollup.arbitrum.io/rpc",
+        "explorerApiUrl": "https://api-sepolia.arbiscan.io/api",
+        "ethNodeChainId": "421614",
+        "ethNodeLegacyTx": false,
+        "ethNodeUseSubscriptions": true,
+        "webPublicUrl": "",
+        "environment": "production",
+        "logLevel": "info",
+        "logFormat": "json",
+        "logColor": false,
+        "providerCacheTtl": "600",
+        "maxConcurrentSessions": "100",
+        "sessionTimeout": "3600",
+        "x": 800,
+        "y": 120,
+        "wires": [
+            [
+                "debug-node"
+            ]
+        ]
+    },
+    {
+        "id": "debug-node",
+        "type": "debug",
+        "z": "deploy-flow-tab",
+        "name": "Deployment Result",
+        "active": true,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1020,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "comment-node-1",
+        "type": "comment",
+        "z": "deploy-flow-tab",
+        "name": "Step 1: Configure",
+        "info": "Configure your Google Cloud and Docker registry settings",
+        "x": 350,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "comment-node-2",
+        "type": "comment",
+        "z": "deploy-flow-tab",
+        "name": "Step 2: Deploy Proxy",
+        "info": "Deploy the Morpheus proxy to Cloud Run",
+        "x": 580,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "comment-node-3",
+        "type": "comment",
+        "z": "deploy-flow-tab",
+        "name": "Step 3: Deploy Consumer",
+        "info": "Deploy the Morpheus consumer to Cloud Run",
+        "x": 800,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "comment-node-4",
+        "type": "comment",
+        "z": "deploy-flow-tab",
+        "name": "Step 4: View Results",
+        "info": "Check the deployment results",
+        "x": 1020,
+        "y": 80,
+        "wires": []
+    }
+] 

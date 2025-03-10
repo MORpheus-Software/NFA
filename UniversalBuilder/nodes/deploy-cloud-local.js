@@ -1,5 +1,5 @@
 module.exports = function(RED) {
-    function CloudLocalNode(config) {
+    function RunLocalContainerNode(config) {
         RED.nodes.createNode(this, config);
         var node = this;
 
@@ -11,5 +11,5 @@ module.exports = function(RED) {
             }
         });
     }
-    RED.nodes.registerType("deploy-cloud-local", CloudLocalNode);
+    RED.nodes.registerType("run-local-container", RunLocalContainerNode);
 }

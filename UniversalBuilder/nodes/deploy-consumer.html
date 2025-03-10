@@ -4,7 +4,16 @@
         color: '#a6bbcf',
         defaults: {
             name: { value: "" },
-            deployConfig: { type: "deploy-config", required: true },
+            // GCP Configuration
+            projectId: { value: "", required: true },
+            region: { value: "us-west1", required: true },
+            dockerRegistry: { value: "srt0422", required: true },
+            consumerVersion: { value: "v0.0.19", required: true },
+            // Authentication Configuration
+            consumerUsername: { value: "admin", required: true },
+            consumerPassword: { value: "consumer-password-123", required: true },
+            useCookieSecret: { value: true },
+            cookieSecretName: { value: "COOKIE_SECRET" },
             // Blockchain Configuration
             walletKey: { value: "" },
             contractAddress: { value: "0xb8C55cD613af947E73E262F0d3C54b7211Af16CF" },
@@ -37,6 +46,21 @@
         icon: "consumer.png",
         label: function() {
             return this.name || "Consumer";
+        },
+        oneditprepare: function() {
+            // Initialize the useCookieSecret selector to show the default value
+            $("#node-input-useCookieSecret").val(this.useCookieSecret.toString());
+            
+            // Initialize other dropdowns to their default values
+            $("#node-input-ethNodeLegacyTx").val(this.ethNodeLegacyTx.toString());
+            $("#node-input-ethNodeUseSubscriptions").val(this.ethNodeUseSubscriptions.toString());
+            $("#node-input-proxyStoreChatContext").val(this.proxyStoreChatContext.toString());
+            $("#node-input-logColor").val(this.logColor.toString());
+            
+            // Initialize select elements that have string values
+            $("#node-input-environment").val(this.environment);
+            $("#node-input-logLevel").val(this.logLevel);
+            $("#node-input-logFormat").val(this.logFormat);
         }
     });
 </script>
@@ -46,9 +70,44 @@
         <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
         <input type="text" id="node-input-name" placeholder="Name">
     </div>
+
+    <div class="form-section-header">GCP Configuration</div>
     <div class="form-row">
-        <label for="node-input-deployConfig"><i class="fa fa-cog"></i> Configuration</label>
-        <input type="text" id="node-input-deployConfig">
+        <label for="node-input-projectId"><i class="fa fa-cloud"></i> Project ID</label>
+        <input type="text" id="node-input-projectId" placeholder="GCP Project ID">
+    </div>
+    <div class="form-row">
+        <label for="node-input-region"><i class="fa fa-globe"></i> Region</label>
+        <input type="text" id="node-input-region" placeholder="us-west1">
+    </div>
+    <div class="form-row">
+        <label for="node-input-dockerRegistry"><i class="fa fa-docker"></i> Docker Registry</label>
+        <input type="text" id="node-input-dockerRegistry" placeholder="srt0422">
+    </div>
+    <div class="form-row">
+        <label for="node-input-consumerVersion"><i class="fa fa-code-branch"></i> Consumer Version</label>
+        <input type="text" id="node-input-consumerVersion" placeholder="v0.0.19">
+    </div>
+
+    <div class="form-section-header">Authentication Configuration</div>
+    <div class="form-row">
+        <label for="node-input-consumerUsername"><i class="fa fa-user"></i> Username</label>
+        <input type="text" id="node-input-consumerUsername" placeholder="admin">
+    </div>
+    <div class="form-row">
+        <label for="node-input-consumerPassword"><i class="fa fa-key"></i> Password</label>
+        <input type="password" id="node-input-consumerPassword">
+    </div>
+    <div class="form-row">
+        <label for="node-input-useCookieSecret"><i class="fa fa-lock"></i> Use Cookie Secret</label>
+        <select id="node-input-useCookieSecret">
+            <option value="true">True</option>
+            <option value="false">False</option>
+        </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-cookieSecretName"><i class="fa fa-file-alt"></i> Cookie Secret Name</label>
+        <input type="text" id="node-input-cookieSecretName" placeholder="COOKIE_SECRET">
     </div>
 
     <div class="form-section-header">Blockchain Configuration</div>
@@ -177,4 +236,39 @@
         border-bottom: 1px solid #eee;
         margin: 20px 0 10px;
     }
-</style> 
+</style>
+
+<script type="text/html" data-help-name="deploy-consumer">
+    <p>Deploys a Consumer Node to Google Cloud Run.</p>
+    
+    <h3>Inputs</h3>
+    <dl class="message-properties">
+        <dt class="optional">config <span class="property-type">object</span></dt>
+        <dd>Optional configuration object that can include additional deployment settings.</dd>
+        <dt class="optional">config.proxyUrl <span class="property-type">string</span></dt>
+        <dd>URL of the proxy service to connect to (typically from a deploy-proxy node).</dd>
+    </dl>
+    
+    <h3>Outputs</h3>
+    <dl class="message-properties">
+        <dt>payload <span class="property-type">object</span></dt>
+        <dd>The result of the deployment.</dd>
+        <dt>payload.status <span class="property-type">string</span></dt>
+        <dd>Either 'success' or 'error'.</dd>
+        <dt>payload.consumerUrl <span class="property-type">string</span></dt>
+        <dd>The URL of the deployed consumer service (on success).</dd>
+        <dt>config <span class="property-type">object</span></dt>
+        <dd>Updated configuration object including the consumerUrl for subsequent nodes.</dd>
+    </dl>
+    
+    <h3>Details</h3>
+    <p>This node deploys a Consumer Node to Google Cloud Run. It performs the following steps:</p>
+    <ol>
+        <li>Creates or updates a cookie secret in Google Secret Manager</li>
+        <li>Pulls, tags, and pushes the consumer Docker image to Google Container Registry</li>
+        <li>Deploys the service to Cloud Run with the specified configuration</li>
+        <li>Checks the health of the deployed service</li>
+    </ol>
+    
+    <p><strong>Note:</strong> This node requires Google Cloud SDK (gcloud) to be installed and authenticated.</p>
+</script> 

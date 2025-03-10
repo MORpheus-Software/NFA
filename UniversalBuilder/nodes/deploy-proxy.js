@@ -1,14 +1,17 @@
 const { exec } = require('child_process');
 const util = require('util');
 const execAsync = util.promisify(exec);
+const https = require('https');
+const http = require('http');
+const { spawn } = require('child_process');
 
 module.exports = function(RED) {
     function ProxyNode(config) {
         RED.nodes.createNode(this, config);
         
-        // Store configuration
+        // Store configuration with validation
         this.name = config.name;
-        this.action = config.action;
+        this.action = config.action || 'deploy';
         this.projectId = config.projectId;
         this.region = config.region;
         this.dockerRegistry = config.dockerRegistry;
@@ -18,9 +21,120 @@ module.exports = function(RED) {
         this.sessionDuration = config.sessionDuration || "1h";
         this.marketplaceBaseUrl = config.marketplaceBaseUrl;
         this.marketplaceUrl = config.marketplaceUrl;
+        this.consumerUsername = config.consumerUsername || "proxy";
+        this.consumerPassword = config.consumerPassword;
+        this.consumerNodeUrl = config.consumerNodeUrl;
         
         const node = this;
         
+        // Allow exec function injection for testing
+        this._execAsync = execAsync;
+        
+        // Validate required configuration
+        function validateConfig(config) {
+            const required = [
+                'projectId', 
+                'region', 
+                'dockerRegistry', 
+                'proxyVersion',
+                'marketplaceUrl'
+            ];
+            const missing = required.filter(field => !config[field]);
+            if (missing.length > 0) {
+                throw new Error(`Missing required configuration: ${missing.join(', ')}`);
+            }
+        }
+        
+        // Handle deployment errors
+        function handleError(err, msg) {
+            node.error(err);
+            node.status({fill:"red",shape:"dot",text:err.message});
+            msg.payload = {
+                error: err.message || err,
+                status: 'error'
+            };
+            return msg;
+        }
+
+        // Interactive GCP authentication
+        async function authenticateGCP() {
+            return new Promise((resolve, reject) => {
+                // Start the gcloud auth login process - will automatically open browser
+                const gcloudAuth = spawn('gcloud', ['auth', 'login']);
+                
+                gcloudAuth.stderr.on('data', (data) => {
+                    const output = data.toString();
+                    if (!output.includes("Opening in existing browser session")) {
+                        node.warn(output);
+                    }
+                });
+
+                gcloudAuth.on('close', (code) => {
+                    if (code === 0) {
+                        node.status({fill:"green",shape:"dot",text:"Authenticated"});
+                        resolve();
+                    } else {
+                        node.status({fill:"red",shape:"dot",text:"Authentication failed"});
+                        reject(new Error('Authentication failed'));
+                    }
+                });
+            });
+        }
+
+        // Ensure GCP context
+        async function checkGCPAuth() {
+            try {
+                await execAsync('gcloud auth print-access-token');
+                return true;
+            } catch (err) {
+                return false;
+            }
+        }
+
+        // Check deployment status
+        async function checkDeployment(serviceName, region) {
+            try {
+                const cmd = `gcloud run services describe ${serviceName} --region ${region} --format 'get(status.conditions[0].status,status.conditions[0].message)'`;
+                const { stdout } = await execAsync(cmd);
+                const [status, message] = stdout.trim().split('\n');
+                return status === 'True';
+            } catch (err) {
+                throw new Error(`Failed to check deployment status: ${err.message}`);
+            }
+        }
+
+        // Get service URL
+        async function getServiceUrl(serviceName, region) {
+            try {
+                const cmd = `gcloud run services describe ${serviceName} --region ${region} --format 'get(status.url)'`;
+                const { stdout } = await execAsync(cmd);
+                return stdout.trim();
+            } catch (err) {
+                throw new Error(`Failed to get service URL: ${err.message}`);
+            }
+        }
+
+        // Check service health
+        async function checkServiceHealth(url) {
+            return new Promise((resolve) => {
+                const protocol = url.startsWith('https') ? https : http;
+                const healthUrl = url.replace(/\/$/, '') + '/health';
+                
+                const req = protocol.get(healthUrl, (res) => {
+                    resolve(res.statusCode === 200);
+                });
+                
+                req.on('error', () => {
+                    resolve(false);
+                });
+                
+                req.setTimeout(5000, () => {
+                    req.destroy();
+                    resolve(false);
+                });
+            });
+        }
+
         node.on('input', async function(msg) {
             try {
                 const existingPayload = msg.payload || {};
@@ -31,135 +145,179 @@ module.exports = function(RED) {
                     projectId: msgConfig.projectId || this.projectId,
                     region: msgConfig.region || this.region,
                     dockerRegistry: msgConfig.dockerRegistry || this.dockerRegistry,
-                    proxyVersion: msgConfig.proxyVersion || this.proxyVersion || 'latest',
-                    internalApiPort: msgConfig.proxyPort || this.internalApiPort || '8080',
-                    marketplacePort: msgConfig.env?.MARKETPLACE_PORT || this.marketplacePort || '3333',
-                    sessionDuration: msgConfig.env?.SESSION_DURATION || this.sessionDuration || '1h',
-                    marketplaceBaseUrl: this.marketplaceBaseUrl,
-                    marketplaceUrl: this.marketplaceUrl
+                    proxyVersion: msgConfig.proxyVersion || this.proxyVersion,
+                    internalApiPort: msgConfig.internalApiPort || this.internalApiPort || '8080',
+                    marketplacePort: msgConfig.marketplacePort || this.marketplacePort || '3333',
+                    sessionDuration: msgConfig.sessionDuration || this.sessionDuration || '1h',
+                    marketplaceBaseUrl: msgConfig.marketplaceBaseUrl || this.marketplaceBaseUrl || 'http://consumer-service',
+                    marketplaceUrl: msgConfig.marketplaceUrl || this.marketplaceUrl || 'http://consumer-service/chat/completions',
+                    consumerUsername: msgConfig.consumerUsername || this.consumerUsername || 'proxy',
+                    consumerPassword: msgConfig.consumerPassword || this.consumerPassword,
+                    consumerNodeUrl: msgConfig.consumerNodeUrl || this.consumerNodeUrl || 'http://consumer-service'
                 };
                 
-                const imageName = `${effectiveConfig.dockerRegistry}/${msgConfig.proxyImage || 'openai-morpheus-proxy:' + effectiveConfig.proxyVersion}`;
+                // Validate configuration before proceeding
+                validateConfig(effectiveConfig);
+
+                // Ensure GCP context with the effective configuration
+                async function ensureGcpContext() {
+                    try {
+                        // Set project ID first
+                        await execAsync(`gcloud config set project ${effectiveConfig.projectId}`);
+                        
+                        // Check if already authenticated
+                        const isAuthenticated = await checkGCPAuth();
+                        if (!isAuthenticated) {
+                            // If not authenticated, start interactive authentication
+                            await authenticateGCP();
+                        }
+                    } catch (err) {
+                        throw new Error('Failed to set GCP project: ' + err.message);
+                    }
+                }
+
+                // Ensure GCP context first
+                await ensureGcpContext();
+
+                const imageName = `${effectiveConfig.dockerRegistry}/openai-morpheus-proxy:${effectiveConfig.proxyVersion}`;
+                const serviceName = 'nfa-proxy';
                 
                 if (this.action === 'update') {
-                    // Get URLs from either payload or config
-                    const proxyUrl = existingPayload.proxyUrl || msgConfig.proxyUrl;
-                    const consumerUrl = existingPayload.consumerUrl || msgConfig.consumerUrl;
-                    
-                    if (!proxyUrl || !consumerUrl) {
+                    // Update existing service
+                    try {
+                        const updateCmd = `gcloud run services update ${serviceName} \
+                            --platform managed \
+                            --region ${effectiveConfig.region} \
+                            --image ${imageName} \
+                            --port ${effectiveConfig.internalApiPort} \
+                            --allow-unauthenticated \
+                            --update-env-vars "PORT=${effectiveConfig.internalApiPort},\
+INTERNAL_API_PORT=${effectiveConfig.internalApiPort},\
+MARKETPLACE_PORT=${effectiveConfig.marketplacePort},\
+MARKETPLACE_BASE_URL=${effectiveConfig.marketplaceBaseUrl},\
+MARKETPLACE_URL=${effectiveConfig.marketplaceUrl},\
+CONSUMER_USERNAME=${effectiveConfig.consumerUsername},\
+CONSUMER_PASSWORD=${effectiveConfig.consumerPassword},\
+CONSUMER_NODE_URL=${effectiveConfig.consumerNodeUrl},\
+SESSION_DURATION=${effectiveConfig.sessionDuration}"`;
+
+                        await this._execAsync(updateCmd);
+                        
+                        // Wait for deployment to complete
+                        let deployed = false;
+                        for (let i = 0; i < 30 && !deployed; i++) {
+                            deployed = await checkDeployment(serviceName, effectiveConfig.region);
+                            if (!deployed) await new Promise(resolve => setTimeout(resolve, 2000));
+                        }
+                        
+                        if (!deployed) {
+                            throw new Error('Deployment timed out');
+                        }
+
+                        const serviceUrl = await getServiceUrl(serviceName, effectiveConfig.region);
+
+                        // Check service health
+                        if (!await checkServiceHealth(serviceUrl)) {
+                            throw new Error('Failed to verify service health');
+                        }
+                        
                         msg.payload = {
-                            status: 'error',
-                            action: 'update',
-                            message: 'Missing required URLs for update'
+                            proxyUrl: serviceUrl,
+                            status: 'updated',
+                            action: 'update'
                         };
-                        node.send(msg);
-                        return;
+
+                        // Set OPENAI_API_URL for downstream nodes
+                        msg.config = msg.config || {};
+                        msg.config.OPENAI_API_URL = serviceUrl;
+                    } catch (updateErr) {
+                        throw new Error(`Update failed: ${updateErr.message}`);
                     }
-                    
-                    // Get environment variables for update
-                    const env = {
-                        INTERNAL_API_PORT: effectiveConfig.internalApiPort,
-                        MARKETPLACE_PORT: effectiveConfig.marketplacePort,
-                        SESSION_DURATION: effectiveConfig.sessionDuration,
-                        MARKETPLACE_BASE_URL: consumerUrl,
-                        MARKETPLACE_URL: `${consumerUrl}/v1/chat/completions`
-                    };
-                    
-                    // Format environment variables for gcloud command
-                    const envVars = Object.entries(env)
-                        .filter(([_, v]) => v !== undefined && v !== '')
-                        .map(([k, v]) => `${k}=${v}`)
-                        .join(',');
-                    
-                    // Update NFA Proxy configuration
-                    const updateCmd = [
-                        'gcloud run services update nfa-proxy',
-                        '--platform managed',
-                        `--region ${effectiveConfig.region}`,
-                        `--set-env-vars "${envVars}"`
-                    ].join(' ');
-                    
-                    console.log('Executing proxy update command:', updateCmd);
-                    const { stdout: updateOutput, stderr: updateError } = await execAsync(updateCmd, {
-                        maxBuffer: 10 * 1024 * 1024 // 10MB buffer
-                    });
-                    console.log('Proxy update output:', updateOutput);
-                    if (updateError) console.error('Proxy update error:', updateError);
-                    
-                    msg.payload = {
-                        status: 'success',
-                        action: 'update',
-                        proxyUrl,
-                        consumerUrl,
-                        output: updateOutput,
-                        error: updateError
-                    };
                 } else {
-                    // Deploy NFA Proxy
-                    const deployCmd = [
-                        'gcloud run deploy nfa-proxy',
-                        `--image ${imageName}`,
-                        '--platform managed',
-                        `--region ${effectiveConfig.region}`,
-                        '--allow-unauthenticated',
-                        `--set-env-vars "INTERNAL_API_PORT=${effectiveConfig.internalApiPort},` +
-                        `MARKETPLACE_PORT=${effectiveConfig.marketplacePort},` +
-                        `SESSION_DURATION=${effectiveConfig.sessionDuration},` +
-                        `MARKETPLACE_BASE_URL=${effectiveConfig.marketplaceBaseUrl || ''},` +
-                        `MARKETPLACE_URL=${effectiveConfig.marketplaceUrl || ''}"`,
-                    ].join(' ');
-                    
-                    console.log('Executing proxy deployment command:', deployCmd);
-                    const { stdout: deployOutput, stderr: deployError } = await execAsync(deployCmd, {
-                        maxBuffer: 10 * 1024 * 1024 // 10MB buffer
-                    });
-                    console.log('Proxy deployment output:', deployOutput);
-                    if (deployError) console.error('Proxy deployment error:', deployError);
-                    
-                    // Get service URL
-                    const describeCmd = [
-                        'gcloud run services describe nfa-proxy',
-                        `--region ${effectiveConfig.region}`,
-                        '--format "value(status.url)"'
-                    ].join(' ');
-                    
-                    console.log('Getting proxy URL:', describeCmd);
-                    const { stdout: urlOutput, stderr: urlError } = await execAsync(describeCmd);
-                    console.log('Proxy URL output:', urlOutput);
-                    if (urlError) console.error('Proxy URL error:', urlError);
-                    
-                    const proxyUrl = urlOutput.trim();
-                    
-                    if (!proxyUrl) {
-                        throw new Error('Failed to get proxy URL after deployment');
+                    // Deploy new service
+                    try {
+                        const deployCmd = `gcloud run deploy ${serviceName} \
+                            --platform managed \
+                            --region ${effectiveConfig.region} \
+                            --image ${imageName} \
+                            --port ${effectiveConfig.internalApiPort} \
+                            --allow-unauthenticated \
+                            --set-env-vars "INTERNAL_API_PORT=${effectiveConfig.internalApiPort},\
+MARKETPLACE_PORT=${effectiveConfig.marketplacePort},\
+MARKETPLACE_BASE_URL=${effectiveConfig.marketplaceBaseUrl},\
+MARKETPLACE_URL=${effectiveConfig.marketplaceUrl},\
+CONSUMER_USERNAME=${effectiveConfig.consumerUsername},\
+CONSUMER_PASSWORD=${effectiveConfig.consumerPassword},\
+CONSUMER_NODE_URL=${effectiveConfig.consumerNodeUrl},\
+SESSION_DURATION=${effectiveConfig.sessionDuration}"`;
+
+                        // Execute deployment command
+                        const { stdout, stderr } = await this._execAsync(deployCmd);
+                        
+                        // Check if deployment was successful
+                        if (stderr && stderr.includes('ERROR')) {
+                            throw new Error(`Deployment failed: ${stderr}`);
+                        }
+
+                        // Verify IAM policy includes allUsers
+                        const iamCmd = `gcloud run services get-iam-policy ${serviceName} --region ${effectiveConfig.region} --format='get(bindings)'`;
+                        const { stdout: iamOutput } = await this._execAsync(iamCmd);
+                        
+                        if (!iamOutput.includes('allUsers')) {
+                            // If allUsers is not in the policy, explicitly add it
+                            const addIamCmd = `gcloud run services add-iam-policy-binding ${serviceName} \
+                                --region=${effectiveConfig.region} \
+                                --member="allUsers" \
+                                --role="roles/run.invoker"`;
+                            await this._execAsync(addIamCmd);
+                            node.warn("Added allUsers binding to ensure unauthenticated access");
+                        }
+
+                        // Wait for deployment to complete
+                        let deployed = false;
+                        for (let i = 0; i < 30 && !deployed; i++) {
+                            deployed = await checkDeployment(serviceName, effectiveConfig.region);
+                            if (!deployed) await new Promise(resolve => setTimeout(resolve, 2000));
+                        }
+                        
+                        if (!deployed) {
+                            throw new Error('Deployment timed out');
+                        }
+
+                        const serviceUrl = await getServiceUrl(serviceName, effectiveConfig.region);
+                        
+                        // Verify service is publicly accessible
+                        const accessCheckCmd = `curl -s -o /dev/null -w "%{http_code}" ${serviceUrl}/health`;
+                        const { stdout: statusCode } = await this._execAsync(accessCheckCmd);
+                        
+                        if (statusCode === '403' || statusCode === '401') {
+                            throw new Error('Service requires authentication despite --allow-unauthenticated flag');
+                        }
+
+                        msg.payload = {
+                            proxyUrl: serviceUrl,
+                            status: 'deployed',
+                            action: 'deploy'
+                        };
+
+                        // Set OPENAI_API_URL for downstream nodes
+                        msg.config = msg.config || {};
+                        msg.config.OPENAI_API_URL = serviceUrl;
+
+                        node.status({fill:"green",shape:"dot",text:"Deployed"});
+                    } catch (deployErr) {
+                        return handleError(deployErr, msg);
                     }
-                    
-                    msg.payload = {
-                        status: 'success',
-                        action: 'deploy',
-                        proxyUrl,
-                        output: deployOutput,
-                        error: deployError
-                    };
                 }
                 
-                // Pass configuration to next node
-                msg.config = {
-                    ...msgConfig,
-                    proxyUrl: msg.payload.proxyUrl,
-                    consumerUrl: msg.payload.consumerUrl
-                };
-
                 node.send(msg);
-            } catch (error) {
-                console.error('Proxy deployment/update error:', error);
-                msg.payload = {
-                    status: 'error',
-                    error: error.message || 'Proxy deployment/update failed'
-                };
-                node.error(error.message);
-                node.send(msg);
+            } catch (err) {
+                node.send(handleError(err, msg));
             }
+        });
+        
+        node.on('close', function() {
+            // Cleanup resources if needed
         });
     }
     
@@ -170,12 +328,15 @@ module.exports = function(RED) {
             projectId: { value: "", required: true },
             region: { value: "us-west1", required: true },
             dockerRegistry: { value: "srt0422", required: true },
-            proxyVersion: { value: "" },
+            proxyVersion: { value: "v0.0.31", required: true },
             internalApiPort: { value: "8080" },
             marketplacePort: { value: "3333" },
             sessionDuration: { value: "1h" },
             marketplaceBaseUrl: { value: "" },
-            marketplaceUrl: { value: "" }
+            marketplaceUrl: { value: "" },
+            consumerUsername: { value: "proxy" },
+            consumerPassword: { value: "yosz9BZCuu7Rli7mYe4G1JbIO0Yprvwl" },
+            consumerNodeUrl: { value: "" }
         },
         category: "Morpheus",
         color: "#a6bbcf",

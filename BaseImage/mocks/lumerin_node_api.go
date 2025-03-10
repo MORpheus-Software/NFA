@@ -64,7 +64,7 @@ func (m *MockLumerinNodeAPI) Start(port int) error {
 		}
 
 		// Validate credentials
-		if req.Username != "admin" || req.Password != "test-auth-token-12345" {
+		if req.Username != "admin" || req.Password != "mock-test-password" {
 			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 			return
 		}
