@@ -23,7 +23,7 @@ func main() {
 	os.Setenv("CONSUMER_NODE_URL", "http://localhost:8083")
 	os.Setenv("MARKETPLACE_URL", "http://localhost:8083")
 	os.Setenv("CONSUMER_USERNAME", "admin")
-	os.Setenv("CONSUMER_PASSWORD", "test-auth-token-12345")
+	os.Setenv("CONSUMER_PASSWORD", "mock-test-password")
 	os.Setenv("SESSION_DURATION", "1h")
 	os.Setenv("INTERNAL_API_PORT", "8081")
 

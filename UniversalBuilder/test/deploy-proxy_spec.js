@@ -6,13 +6,26 @@ const sinon = require('sinon');
 helper.init(require.resolve('node-red'));
 
 describe('deploy-proxy Node', function() {
-    beforeEach(function(done) {
+    // Increase timeout for deployment tests
+    this.timeout(60000);
+
+    before(function(done) {
+        // Start server once before all tests
         helper.startServer(done);
     });
 
-    afterEach(function(done) {
-        helper.unload();
-        helper.stopServer(done);
+    after(function(done) {
+        // Cleanup after all tests
+        helper.unload().then(() => {
+            helper.stopServer(done);
+        });
+    });
+
+    beforeEach(function(done) {
+        // Clear runtime between tests
+        helper.unload().then(() => {
+            done();
+        });
     });
 
     it('should be loaded with correct defaults', async function() {
