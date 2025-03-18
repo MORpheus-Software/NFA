@@ -1,0 +1,65 @@
+name: Morpheus Deployment - Azure
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Select environment"
+        required: true
+        default: "development"
+        type: choice
+        options:
+          - development
+          - production
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.2
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Install tflint
+        run: curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+
+      - name: Run tflint
+        run: tflint --init && tflint
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -var-file=${{ inputs.environment }}.tfvars -out=tfplan
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' # only apply when triggered from the `main` branch
+        run: terraform apply -auto-approve tfplan
