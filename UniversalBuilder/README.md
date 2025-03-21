@@ -13,6 +13,20 @@ Deploys the Morpheus Proxy component to the configured cloud provider.
 ### deploy-consumer
 Deploys the Morpheus Consumer component to Google Cloud Run. This node takes the output from the deploy-proxy node and connects the consumer to the proxy.
 
+### deploy-webapp
+Deploys the Web Application to Google Cloud Run. This node takes the output from the deploy-proxy node and configures the webapp to connect to the proxy.
+
+## Deployment Flows
+
+### Morpheus Deployment Flow
+The recommended sequence for deploying Morpheus components:
+
+1. Deploy Proxy: Sets up the OpenAI-compatible API proxy
+2. Deploy Consumer: Deploys and connects the consumer service to the proxy
+3. Deploy Web App: Deploys the web application that connects to the proxy
+
+This sequence ensures all components are properly connected and configured to work together.
+
 ## Features
 
 - **Google Cloud Run Deployment**: Deploy the Morpheus Consumer to Google Cloud Run with automatic scaling and high availability.
@@ -20,6 +34,7 @@ Deploys the Morpheus Consumer component to Google Cloud Run. This node takes the
 - **Secret Management**: Create and manage GCP Secrets for secure credential storage.
 - **Health Checking**: Verify deployments are healthy and accessible.
 - **Blockchain Configuration**: Configure connections to Ethereum-compatible networks.
+- **Deployment Sequencing**: Proper dependency management between components.
 
 ## Installation
 
@@ -43,7 +58,8 @@ Or install using the Node-RED Palette Manager.
 1. Add a `deploy-config` node to your flow to configure shared settings.
 2. Connect a `deploy-proxy` node to the config node to deploy the proxy.
 3. Connect a `deploy-consumer` node to the proxy node to deploy the consumer.
-4. Send a message to the config node to start the deployment flow.
+4. Connect a `deploy-webapp` node to the consumer node to deploy the web application.
+5. Send a message to the config node to start the deployment flow.
 
 See the examples directory for a complete sample flow.
 

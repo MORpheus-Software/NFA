@@ -1,0 +1,200 @@
+[
+    {
+        "id": "morpheus-flow-tab",
+        "type": "tab",
+        "label": "Morpheus Deployment Flow",
+        "disabled": false,
+        "info": "# Morpheus Deployment Flow\n\nThis flow demonstrates the complete Morpheus Deployment Flow, including the proxy, consumer, and web app components.\n\nPrerequisites:\n1. Google Cloud Platform account with billing enabled\n2. Docker registry access (Docker Hub or GCR)\n3. Node-RED with UniversalBuilder nodes installed\n\nThe deployment follows this sequence:\n1. Deploy Proxy - Sets up the OpenAI-compatible API\n2. Deploy Consumer - Deploys and connects the consumer to the proxy\n3. Deploy Web App - Deploys the web UI that connects to the proxy\n\nClick the deploy button to start the deployment process."
+    },
+    {
+        "id": "morpheus-inject-node",
+        "type": "inject",
+        "z": "morpheus-flow-tab",
+        "name": "Start Deployment",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{}",
+        "payloadType": "json",
+        "x": 150,
+        "y": 120,
+        "wires": [
+            [
+                "morpheus-config-node"
+            ]
+        ]
+    },
+    {
+        "id": "morpheus-config-node",
+        "type": "deploy-config",
+        "z": "morpheus-flow-tab",
+        "name": "Morpheus Configuration",
+        "projectId": "morpheus-test-project",
+        "region": "us-west1",
+        "dockerRegistry": "srt0422",
+        "proxyImage": "openai-morpheus-proxy",
+        "consumerImage": "morpheus-marketplace-consumer",
+        "proxyVersion": "latest",
+        "consumerVersion": "latest",
+        "proxyPort": "8080",
+        "consumerPort": "8082",
+        "zone": "a",
+        "x": 350,
+        "y": 120,
+        "wires": [
+            [
+                "morpheus-proxy-node"
+            ]
+        ]
+    },
+    {
+        "id": "morpheus-proxy-node",
+        "type": "deploy-proxy",
+        "z": "morpheus-flow-tab",
+        "name": "Deploy Proxy",
+        "action": "deploy",
+        "proxyImage": "openai-morpheus-proxy",
+        "proxyVersion": "latest",
+        "internalApiPort": "8080",
+        "marketplacePort": "3333",
+        "consumerUsername": "admin",
+        "consumerPassword": "your-secure-password",
+        "sessionDuration": "1h",
+        "x": 580,
+        "y": 120,
+        "wires": [
+            [
+                "morpheus-consumer-node"
+            ]
+        ]
+    },
+    {
+        "id": "morpheus-consumer-node",
+        "type": "deploy-consumer",
+        "z": "morpheus-flow-tab",
+        "name": "Deploy Consumer",
+        "consumerImage": "morpheus-marketplace-consumer",
+        "consumerVersion": "latest",
+        "consumerUsername": "admin",
+        "consumerPassword": "your-secure-password",
+        "walletKey": "",
+        "contractAddress": "0xb8C55cD613af947E73E262F0d3C54b7211Af16CF",
+        "morTokenAddress": "0x34a285a1b1c166420df5b6630132542923b5b27e",
+        "blockchainWsUrl": "wss://sepolia-rollup.arbitrum.io/feed",
+        "blockchainHttpUrl": "https://sepolia-rollup.arbitrum.io/rpc",
+        "explorerApiUrl": "https://api-sepolia.arbiscan.io/api",
+        "ethNodeChainId": "421614",
+        "ethNodeLegacyTx": false,
+        "ethNodeUseSubscriptions": true,
+        "webPublicUrl": "",
+        "environment": "production",
+        "logLevel": "info",
+        "logFormat": "json",
+        "logColor": false,
+        "providerCacheTtl": "600",
+        "maxConcurrentSessions": "100",
+        "sessionTimeout": "3600",
+        "x": 800,
+        "y": 120,
+        "wires": [
+            [
+                "morpheus-webapp-node"
+            ]
+        ]
+    },
+    {
+        "id": "morpheus-webapp-node",
+        "type": "deploy-webapp",
+        "z": "morpheus-flow-tab",
+        "name": "Deploy Web App",
+        "action": "deploy",
+        "projectId": "",
+        "region": "us-west1",
+        "dockerRegistry": "srt0422",
+        "version": "latest",
+        "openaiApiUrl": "",
+        "modelName": "Default Model",
+        "chatCompletionsPath": "/v1/chat/completions",
+        "x": 1020,
+        "y": 120,
+        "wires": [
+            [
+                "morpheus-debug-node"
+            ]
+        ]
+    },
+    {
+        "id": "morpheus-debug-node",
+        "type": "debug",
+        "z": "morpheus-flow-tab",
+        "name": "Deployment Result",
+        "active": true,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1240,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "morpheus-comment-1",
+        "type": "comment",
+        "z": "morpheus-flow-tab",
+        "name": "Step 1: Configure",
+        "info": "Configure your Google Cloud and Docker registry settings",
+        "x": 350,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "morpheus-comment-2",
+        "type": "comment",
+        "z": "morpheus-flow-tab",
+        "name": "Step 2: Deploy Proxy",
+        "info": "Deploy the Morpheus proxy to Cloud Run",
+        "x": 580,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "morpheus-comment-3",
+        "type": "comment",
+        "z": "morpheus-flow-tab",
+        "name": "Step 3: Deploy Consumer",
+        "info": "Deploy the Morpheus consumer to Cloud Run",
+        "x": 800,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "morpheus-comment-4",
+        "type": "comment",
+        "z": "morpheus-flow-tab",
+        "name": "Step 4: Deploy Web App",
+        "info": "Deploy the web application that connects to the proxy",
+        "x": 1020,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "morpheus-comment-5",
+        "type": "comment",
+        "z": "morpheus-flow-tab",
+        "name": "Step 5: View Results",
+        "info": "Check the deployment results with URLs for all services",
+        "x": 1240,
+        "y": 80,
+        "wires": []
+    }
+] 
