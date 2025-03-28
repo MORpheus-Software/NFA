@@ -32,6 +32,37 @@ data:
       }
     }
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: service-ip-script
+data:
+  get-service-ip.sh: |-
+    #!/bin/sh
+    set -e
+    
+    # Try to get service IP using k8s API with retries
+    for i in $(seq 1 60); do
+      SERVICE_IP=$(wget -qO- --header "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
+        --no-check-certificate \
+        https://kubernetes.default.svc/api/v1/namespaces/$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)/services/provider-service \
+        | grep -o '"ip": "[^"]*' | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' | head -1)
+        
+      if [ -n "$SERVICE_IP" ]; then
+        echo "http://$SERVICE_IP:8082" > /app/config/web_public_url
+        chmod 644 /app/config/web_public_url
+        echo "Service IP detected: $SERVICE_IP"
+        exit 0
+      fi
+      
+      echo "Waiting for service IP... (attempt $i/60)"
+      sleep 2
+    done
+    
+    echo "Failed to get service IP, using fallback"
+    echo "http://provider-service:8082" > /app/config/web_public_url
+    chmod 644 /app/config/web_public_url
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -60,6 +91,17 @@ spec:
               subPath: proxy.conf
             - name: config-dir
               mountPath: /app/config
+        - name: init-service-ip
+          image: busybox
+          command: ['sh', '-c', 'sh /tmp/get-service-ip.sh']
+          volumeMounts:
+            - name: service-ip-script
+              mountPath: /tmp/get-service-ip.sh
+              subPath: get-service-ip.sh
+            - name: config-dir
+              mountPath: /app/config
+          securityContext:
+            runAsUser: 0
       containers:
         - name: provider
           image: srt0422/morpheus-marketplace-provider:${VERSION}
@@ -103,7 +145,11 @@ spec:
             - name: WEB_ADDRESS
               value: "0.0.0.0:8082"
             - name: WEB_PUBLIC_URL
-              value: "http://provider-service:8082"
+              valueFrom:
+                configMapKeyRef:
+                  name: dynamic-web-url
+                  key: url
+                  optional: true
             - name: MODELS_CONFIG_PATH
               value: "/app/data/models-config.json"
             - name: ETH_NODE_USE_SUBSCRIPTIONS
@@ -120,6 +166,18 @@ spec:
               value: "true"
             - name: AUTH_CONFIG_FILE_PATH
               value: "/app/config/proxy.conf"
+
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - "/bin/sh"
+                  - "-c"
+                  - |
+                    if [ -f /app/config/web_public_url ]; then
+                      URL=$(cat /app/config/web_public_url)
+                      export WEB_PUBLIC_URL="$URL"
+                    fi
 
           volumeMounts:
             - name: provider-data
@@ -139,5 +197,8 @@ spec:
         - name: proxy-config-template
           configMap:
             name: proxy-config
+        - name: service-ip-script
+          configMap:
+            name: service-ip-script
         - name: config-dir
           emptyDir: {}

@@ -77,8 +77,8 @@ spec:
             
             # Logging
             - name: LOG_COLOR
-              value: "truePROJECT_ID=graphical-bus-433219-g5"
-
+              value: "true
+              
           volumeMounts:
             - name: provider-data
               mountPath: /app/data

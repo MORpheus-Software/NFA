@@ -75,10 +75,11 @@ module.exports = function(RED) {
                     status: 'success',
                     action: 'deploy',
                     consumerUrl: deployResult.consumerUrl,
+                    proxyUpdated: true,
                     output: deployResult.output
                 };
                 
-                node.status({fill:"green", shape:"dot", text:"Deployed: " + deployResult.consumerUrl});
+                node.status({fill:"green", shape:"dot", text:"Deployed and updated proxy: " + deployResult.consumerUrl});
                 node.send(msg);
             } catch (error) {
                 handleDeploymentError(node, msg, error);
@@ -240,9 +241,23 @@ module.exports = function(RED) {
             
             await node._execAsync(updateCmd);
             
+            // Update the nfa-proxy with the new consumer URL
+            node.status({fill:"blue", shape:"dot", text:"Updating nfa-proxy..."});
+            
+            // Get proxy service name - typically 'nfa-proxy'
+            const proxyServiceName = 'nfa-proxy';
+            
+            // Update the nfa-proxy with the new consumer URL
+            const updateProxyCmd = `gcloud run services update ${proxyServiceName} \
+                --region "${node.region}" \
+                --platform managed \
+                --update-env-vars "CONSUMER_NODE_URL=${serviceUrl},MARKETPLACE_BASE_URL=${serviceUrl}"`;
+            
+            await node._execAsync(updateProxyCmd);
+            
             return {
                 consumerUrl: serviceUrl,
-                output: `Deployed consumer node to ${serviceUrl}`
+                output: `Deployed consumer node to ${serviceUrl} and updated nfa-proxy`
             };
         } catch (error) {
             throw new Error(`Deployment to Cloud Run failed: ${error.message}`);
@@ -290,18 +305,21 @@ module.exports = function(RED) {
             const maxAttempts = 30;
             let attempt = 1;
             
+            node.status({fill:"blue", shape:"dot", text:"Checking health of deployed consumer..."});
+            
             while (attempt <= maxAttempts) {
                 try {
                     const { stdout } = await node._execAsync(`curl -s "${consumerUrl}/healthcheck"`);
                     
                     if (stdout && (stdout.includes("healthy") || stdout.includes("status"))) {
+                        node.status({fill:"green", shape:"dot", text:"Consumer healthy, proxy updated"});
                         return true;
                     }
                 } catch (err) {
                     // Ignore errors during health check attempts
                 }
                 
-                node.status({fill:"blue", shape:"dot", text:`Checking health... (${attempt}/${maxAttempts})`});
+                node.status({fill:"blue", shape:"dot", text:`Checking consumer health... (${attempt}/${maxAttempts})`});
                 await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
                 attempt++;
             }
