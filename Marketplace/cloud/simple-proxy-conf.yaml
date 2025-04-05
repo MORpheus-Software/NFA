@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: proxy-config
+data:
+  proxy.conf: |
+    rpcauth=admin:87d7ac3c47e29f6568f19aee24f$e02287316968123246aa07a0c67e3d09f69891b53f26422cf49cd5c05cd0bd
+    rpcwhitelist=admin:*
+    rpcwhitelistdefault=0 

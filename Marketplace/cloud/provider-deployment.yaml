@@ -22,46 +22,16 @@ kind: ConfigMap
 metadata:
   name: proxy-config
 data:
-  proxy.conf: |-
-    {
-      "users": {
-        "admin": {
-          "password": "admin123",
-          "role": "admin"
-        }
-      }
-    }
+  proxy.conf: |
+    proxy:yosz9BZCuu7Rli7mYe4G1JbIO0Yprvwl
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: service-ip-script
+  name: cookie-template
 data:
-  get-service-ip.sh: |-
-    #!/bin/sh
-    set -e
-    
-    # Try to get service IP using k8s API with retries
-    for i in $(seq 1 60); do
-      SERVICE_IP=$(wget -qO- --header "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
-        --no-check-certificate \
-        https://kubernetes.default.svc/api/v1/namespaces/$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)/services/provider-service \
-        | grep -o '"ip": "[^"]*' | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' | head -1)
-        
-      if [ -n "$SERVICE_IP" ]; then
-        echo "http://$SERVICE_IP:8082" > /app/config/web_public_url
-        chmod 644 /app/config/web_public_url
-        echo "Service IP detected: $SERVICE_IP"
-        exit 0
-      fi
-      
-      echo "Waiting for service IP... (attempt $i/60)"
-      sleep 2
-    done
-    
-    echo "Failed to get service IP, using fallback"
-    echo "http://provider-service:8082" > /app/config/web_public_url
-    chmod 644 /app/config/web_public_url
+  .cookie: |
+    proxy:yosz9BZCuu7Rli7mYe4G1JbIO0Yprvwl
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -77,34 +47,37 @@ spec:
       labels:
         app: provider
     spec:
-      hostAliases:
-      - ip: "34.118.232.160"  # Use your cluster IP here
-        hostnames:
-        - "provider-service"
+      volumes:
+        - name: provider-data
+          persistentVolumeClaim:
+            claimName: provider-data
+        - name: models-config
+          configMap:
+            name: models-config
+        - name: proxy-config
+          configMap:
+            name: proxy-config
+        - name: cookie-config
+          configMap:
+            name: cookie-template
+        - name: config-dir
+          emptyDir: {}
       initContainers:
         - name: init-config
           image: busybox
-          command: ['sh', '-c', 'cp /tmp/proxy.conf /app/config/proxy.conf && chmod 644 /app/config/proxy.conf']
+          command: ['sh', '-c', 'mkdir -p /app/data && mkdir -p /app/config && cp /proxy-config/proxy.conf /app/config/proxy.conf && chmod 600 /app/config/proxy.conf && cp /cookie-config/.cookie /app/config/.cookie && chmod 600 /app/config/.cookie']
           volumeMounts:
-            - name: proxy-config-template
-              mountPath: /tmp/proxy.conf
-              subPath: proxy.conf
+            - name: proxy-config
+              mountPath: /proxy-config
+            - name: cookie-config
+              mountPath: /cookie-config
             - name: config-dir
               mountPath: /app/config
-        - name: init-service-ip
-          image: busybox
-          command: ['sh', '-c', 'sh /tmp/get-service-ip.sh']
-          volumeMounts:
-            - name: service-ip-script
-              mountPath: /tmp/get-service-ip.sh
-              subPath: get-service-ip.sh
-            - name: config-dir
-              mountPath: /app/config
-          securityContext:
-            runAsUser: 0
+            - name: provider-data
+              mountPath: /app/data
       containers:
         - name: provider
-          image: srt0422/morpheus-marketplace-provider:${VERSION}
+          image: ${REGISTRY}/${PROVIDER_IMAGE_NAME}:${VERSION}
           resources:
             requests:
               memory: "1Gi"
@@ -125,59 +98,49 @@ spec:
                   name: provider-secrets
                   key: wallet-private-key
 
-            # TESTNET VALUES
+            # Contract and blockchain configuration
             - name: DIAMOND_CONTRACT_ADDRESS
-              value: "0xb8C55cD613af947E73E262F0d3C54b7211Af16CF"
+              value: "${DIAMOND_CONTRACT_ADDRESS}"
             - name: MOR_TOKEN_ADDRESS
-              value: "0x34a285a1b1c166420df5b6630132542923b5b27e"
+              value: "${MOR_TOKEN_ADDRESS}"
             - name: EXPLORER_API_URL
-              value: "https://api-sepolia.arbiscan.io/api"
+              value: "${EXPLORER_API_URL}"
             - name: ETH_NODE_CHAIN_ID
-              value: "421614"
+              value: "${ETH_NODE_CHAIN_ID}"
             - name: ENVIRONMENT
-              value: "development"
+              value: "${ENVIRONMENT}"
             - name: BLOCKSCOUT_API_URL
-              value: "https://api-sepolia.arbiscan.io/api"
+              value: "${EXPLORER_API_URL}"
+            - name: ETH_NODE_ADDRESS
+              value: "${ETH_NODE_ADDRESS}"
 
-            # COMMON
+            # Service configuration
             - name: PROXY_ADDRESS
               value: "0.0.0.0:3333"
             - name: WEB_ADDRESS
               value: "0.0.0.0:8082"
             - name: WEB_PUBLIC_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: dynamic-web-url
-                  key: url
-                  optional: true
+              value: "http://35.227.134.166:8082"
             - name: MODELS_CONFIG_PATH
-              value: "/app/data/models-config.json"
+              value: "${MODELS_CONFIG_PATH}"
             - name: ETH_NODE_USE_SUBSCRIPTIONS
-              value: "false"
-            - name: ETH_NODE_ADDRESS
-              value: "https://sepolia-rollup.arbitrum.io/rpc"
+              value: "${ETH_NODE_USE_SUBSCRIPTIONS}"
             - name: ETH_NODE_LEGACY_TX
-              value: "false"
+              value: "${ETH_NODE_LEGACY_TX}"
             - name: PROXY_STORE_CHAT_CONTEXT
               value: "true"
             - name: PROXY_STORAGE_PATH
-              value: "./data/"
+              value: "${PROXY_STORAGE_PATH}"
             - name: LOG_COLOR
               value: "true"
+            
+            # Authentication configuration - use environment variables instead of paths
+            - name: COOKIE_CONTENT
+              value: "proxy:yosz9BZCuu7Rli7mYe4G1JbIO0Yprvwl"
             - name: AUTH_CONFIG_FILE_PATH
               value: "/app/config/proxy.conf"
-
-          lifecycle:
-            postStart:
-              exec:
-                command:
-                  - "/bin/sh"
-                  - "-c"
-                  - |
-                    if [ -f /app/config/web_public_url ]; then
-                      URL=$(cat /app/config/web_public_url)
-                      export WEB_PUBLIC_URL="$URL"
-                    fi
+            - name: COOKIE_FILE_PATH
+              value: "/app/config/.cookie"
 
           volumeMounts:
             - name: provider-data
@@ -187,18 +150,11 @@ spec:
               subPath: models-config.json
             - name: config-dir
               mountPath: /app/config
-      volumes:
-        - name: provider-data
-          persistentVolumeClaim:
-            claimName: provider-data
-        - name: models-config
-          configMap:
-            name: models-config
-        - name: proxy-config-template
-          configMap:
-            name: proxy-config
-        - name: service-ip-script
-          configMap:
-            name: service-ip-script
-        - name: config-dir
-          emptyDir: {}
+        - name: debug
+          image: busybox
+          command: ["sleep", "3600"]
+          volumeMounts:
+            - name: config-dir
+              mountPath: /app/config
+            - name: provider-data
+              mountPath: /app/data

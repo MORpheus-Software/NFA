@@ -3,17 +3,15 @@ kind: Service
 metadata:
   name: provider-service
 spec:
-  type: LoadBalancer
-  externalTrafficPolicy: Local
-  internalTrafficPolicy: Local
   selector:
     app: provider
   ports:
-    - name: api
-      protocol: TCP
-      port: 8082
-      targetPort: 8082
-    - name: proxy
-      protocol: TCP
-      port: 3333
+    - port: 3333
       targetPort: 3333
+      protocol: TCP
+      name: provider
+    - port: 8082
+      targetPort: 8082
+      protocol: TCP
+      name: health
+  type: LoadBalancer
