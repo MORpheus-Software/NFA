@@ -100,7 +100,6 @@ print_success "Provider secrets configured"
 if [ "$SKIP_CLEANUP" = false ]; then
   print_status "Cleaning up previous deployment and resources..."
   kubectl delete deployment provider-deployment 2>/dev/null || true
-  kubectl delete configmap cookie-template 2>/dev/null || true
   kubectl delete configmap dynamic-web-url 2>/dev/null || true
   kubectl delete configmap rating-config 2>/dev/null || true
   print_success "Previous resources cleaned up"
@@ -108,11 +107,6 @@ if [ "$SKIP_CLEANUP" = false ]; then
 else
   print_warning "Skipping cleanup of previous resources"
 fi
-
-# Create cookie ConfigMap
-print_status "Creating cookie ConfigMap with auth credentials..."
-kubectl delete configmap cookie-template 2>/dev/null || true
-kubectl create configmap cookie-template --from-literal=.cookie="${PROVIDER_AUTH_USERNAME}:${PROVIDER_AUTH_PASSWORD}"
 
 # Create web URL ConfigMap
 print_status "Creating dynamic web URL ConfigMap..."
@@ -289,7 +283,6 @@ if kubectl get pods -l app=provider | grep -q "Running"; then
   
   print_status "HELPFUL COMMANDS"
   echo "Check logs: kubectl logs -f deployment/provider-deployment"
-  echo "Check auth file: kubectl exec -it ${POD_NAME} -c debug -- cat /app/config/proxy.conf"
   echo "Access debug container: kubectl exec -it ${POD_NAME} -c debug -- sh"
   echo "Port forward to provider: kubectl port-forward service/provider-service ${PROVIDER_PORT}:${PROVIDER_PORT}"
   echo ""

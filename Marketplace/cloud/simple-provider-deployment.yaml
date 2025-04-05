@@ -56,7 +56,7 @@ spec:
               mountPath: /cookie
       containers:
         - name: provider
-          image: ${REGISTRY}/${PROVIDER_IMAGE_NAME}:${VERSION}
+          image: gcr.io/morpheus-agora/lumerin-provider:v1
           resources:
             requests:
               memory: "1Gi"
@@ -79,19 +79,19 @@ spec:
 
             # Contract and blockchain configuration
             - name: DIAMOND_CONTRACT_ADDRESS
-              value: "${DIAMOND_CONTRACT_ADDRESS}"
+              value: "0xb8C55cD613af947E73E262F0d3C54b7211Af16CF"
             - name: MOR_TOKEN_ADDRESS
-              value: "${MOR_TOKEN_ADDRESS}"
+              value: "0x34a285a1b1c166420df5b6630132542923b5b27e"
             - name: EXPLORER_API_URL
-              value: "${EXPLORER_API_URL}"
+              value: "https://api-sepolia.arbiscan.io/api"
             - name: ETH_NODE_CHAIN_ID
-              value: "${ETH_NODE_CHAIN_ID}"
+              value: "421614"
             - name: ENVIRONMENT
-              value: "${ENVIRONMENT}"
+              value: "development"
             - name: BLOCKSCOUT_API_URL
-              value: "${EXPLORER_API_URL}"
+              value: "https://api-sepolia.arbiscan.io/api"
             - name: ETH_NODE_ADDRESS
-              value: "${ETH_NODE_ADDRESS}"
+              value: "https://sepolia-rollup.arbitrum.io/rpc"
 
             # Service configuration
             - name: PROXY_ADDRESS
@@ -101,15 +101,15 @@ spec:
             - name: WEB_PUBLIC_URL
               value: "http://35.227.134.166:8082"
             - name: MODELS_CONFIG_PATH
-              value: "${MODELS_CONFIG_PATH}"
+              value: "/app/data/models-config.json"
             - name: ETH_NODE_USE_SUBSCRIPTIONS
-              value: "${ETH_NODE_USE_SUBSCRIPTIONS}"
+              value: "false"
             - name: ETH_NODE_LEGACY_TX
-              value: "${ETH_NODE_LEGACY_TX}"
+              value: "false"
             - name: PROXY_STORE_CHAT_CONTEXT
               value: "true"
             - name: PROXY_STORAGE_PATH
-              value: "${PROXY_STORAGE_PATH}"
+              value: "/app/data/badger/"
             - name: LOG_COLOR
               value: "true"
             
@@ -143,4 +143,4 @@ spec:
             - name: provider-data
               mountPath: /app/data
             - name: cookie-file
-              mountPath: /app
+              mountPath: /app 
